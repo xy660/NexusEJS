@@ -113,6 +113,19 @@ async和await关键字已被移除，但是可以通过`runTask(func,param) : Ta
 - .isRunning() 获取任务是否正在运行
 - .getResult() 获取任务返回值，如果任务还在运行则返回null
 
+对于并发资源访问，需要使用互斥锁临界区，当然NexusEJS提供了lock(obj){...}语法糖，示例：
+
+```javascript
+
+let sharedObject = {...};
+
+//access in other task
+lock(sharedObject){
+    //operation safe here
+}
+
+```
+
 ## Buffer类型
 
 `Buffer`类型是NexusEJS专门设计的原生缓冲区绑定类，允许JavaScript脚本创建一个指定大小的原生缓冲区
@@ -136,5 +149,6 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
