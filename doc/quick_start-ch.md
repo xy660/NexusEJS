@@ -103,6 +103,8 @@ READY TO FINALIZE机制允许对象通过实现finalize() : boolean方法来控�
 
 当GC即将回收对象的时候，finalize()方法会被GC调用，此时如果返回`false`则GC不会回收此对象及其所有子引用，如果返回`true`，则finalize()成员方法会被GC移除，下次GC时对象将被回收
 
+**警告：请不要直接调用obj.finalize()，这个方法仅允许GC进行回调，否则会导致未定义行为**
+
 ## 多任务
 
 NexusEJS的任务模型与标准Javascript不同，NexusEJS移除的事件循环，取而代之的是基于平台OS的真实线程，因此不必担心native方法阻塞其他任务，但是需要小心并发资源访问
@@ -149,6 +151,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
