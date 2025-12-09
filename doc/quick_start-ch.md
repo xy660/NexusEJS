@@ -52,7 +52,7 @@ println(man.getInfo());
 
 ## 闭包
 
-NexusEJS目前不支持闭包，也是为了内存而考虑，通常更推荐显式传递需要的信息，避免对象生命周期过长造成内存泄漏
+NexusEJS目前暂时不支持闭包，也是为了内存而考虑，根据反馈未来可能计划支持闭包，通常更推荐显式传递需要的信息，避免对象生命周期过长造成内存泄漏
 
 示例：
 
@@ -151,6 +151,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
