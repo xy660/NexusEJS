@@ -86,7 +86,7 @@ function getCounter() {
 
 NexusEJS runtime behavior is similar to traditional JavaScript's `'use strict'` but stricter.  
 
-NexusEJS does **not** allow mixing `"123"` and `123`. The `==` operator behaves identically to the standard JavaScript `===` operator. Values must be converted to the same type using `Number.parse()`.  
+NexusEJS does **not** allow mixing `"123"` and `123`. The `==` operator behaves identically to the standard JavaScript `===` operator. Values must be converted to the same type using `Number.parseInt()` or `Number.parseFloat()`.  
 
 Similarly, array indices **cannot** be strings, avoiding undefined behavior caused by implicit conversions.  
 
