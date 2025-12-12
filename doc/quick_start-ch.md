@@ -81,7 +81,7 @@ function getCounter(){
 
 NexusEJS运行时行为默认类似传统Javascript的'use strict'，但是更加严格
 
-NexusEJS不支持`"123"`和`123`混合使用，并且`==`运算符和标准JavaScript的`===`运算符行为一致，必须通过`Number.parse()`转换为同一类型
+NexusEJS不支持`"123"`和`123`混合使用，并且`==`运算符和标准JavaScript的`===`运算符行为一致，必须通过`Number.parseInt()`或`Number.parseFloat()`转换为同一类型
 
 同理，数组索引也是不允许使用字符串的，避免隐式转换导致的未定义行为
 
@@ -151,6 +151,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
