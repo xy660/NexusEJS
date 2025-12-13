@@ -3,8 +3,58 @@
 #include <Arduino.h>
 #include <VM.h>
 #include <GC.h>
+#include <driver/i2c.h>
 #include "ESP32Driver/Esp32Driver.h"
 
+#pragma region i2c_support
+
+#define I2C_MASTER_NUM I2C_NUM_0
+#define I2C_MASTER_TIMEOUT_MS 1000
+
+void i2c_master_init(uint8_t sda_pin, uint8_t scl_pin, uint32_t freq) {
+    i2c_config_t conf;
+    
+    // 单独赋值
+    conf.mode = I2C_MODE_MASTER;
+    conf.sda_io_num = sda_pin;
+    conf.scl_io_num = scl_pin;
+    conf.sda_pullup_en = GPIO_PULLUP_ENABLE;
+    conf.scl_pullup_en = GPIO_PULLUP_ENABLE;
+    conf.master.clk_speed = freq;
+    conf.clk_flags = 0;  // 如果结构体有clk_flags字段
+    
+    i2c_param_config(I2C_MASTER_NUM, &conf);
+    i2c_driver_install(I2C_MASTER_NUM, I2C_MODE_MASTER, 0, 0, 0);
+}
+
+esp_err_t i2c_master_write(uint8_t addr, const uint8_t* data, size_t len) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_WRITE, true);
+    i2c_master_write(cmd, data, len, true);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 
+                                         I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+    return ret;
+}
+
+esp_err_t i2c_master_read(uint8_t addr, uint8_t* data, size_t len) {
+    i2c_cmd_handle_t cmd = i2c_cmd_link_create();
+    i2c_master_start(cmd);
+    i2c_master_write_byte(cmd, (addr << 1) | I2C_MASTER_READ, true);
+    if (len > 1) {
+        i2c_master_read(cmd, data, len - 1, I2C_MASTER_ACK);
+    }
+    i2c_master_read_byte(cmd, data + len - 1, I2C_MASTER_NACK);
+    i2c_master_stop(cmd);
+    esp_err_t ret = i2c_master_cmd_begin(I2C_MASTER_NUM, cmd, 
+                                         I2C_MASTER_TIMEOUT_MS / portTICK_PERIOD_MS);
+    i2c_cmd_link_delete(cmd);
+    return ret;
+}
+
+#pragma endregion
 
 void ESP32_Platform_Init(){
     Serial.begin(9600);

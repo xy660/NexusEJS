@@ -200,6 +200,7 @@ void ESP32_HTTPApi_Init(VM* VMInstance){
         serverInstances[serverId] = std::unique_ptr<WebServer>(nativeWebServer);
         objContainer[L"_id"] = CreateNumberVariable((double)serverId);
         objContainer[L"port"] = CreateNumberVariable(args[0].content.number);
+        objContainer[L"_cb"] = CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY));
         //创建析构函数销毁绑定的原生web服务对象
         objContainer[L"finalize"] = VM::CreateSystemFunc(0,[](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue{
             //销毁相关原生资源
@@ -247,7 +248,10 @@ void ESP32_HTTPApi_Init(VM* VMInstance){
                 currentWorker->ThrowError(L"invaild callback");
                 return VariableValue();
             }
-            ScriptFunction* callback = args[1].content.function;
+            
+            //将回调对象存入this._cb中，防止GC误回收
+            thisValue->implement.objectImpl[L"_cb"].content.ref->implement.arrayImpl.push_back(args[1]);
+            VariableValue callback = args[1]; //拷贝持有一份闭包
 
             uint32_t nativeId = (uint32_t)thisValue->implement.objectImpl[L"_id"].content.number;
             auto pServer = serverInstances[nativeId].get();
@@ -255,6 +259,7 @@ void ESP32_HTTPApi_Init(VM* VMInstance){
             //实现回调层
             pServer->on(wstring_to_string(args[0].content.ref->implement.stringImpl).c_str(),
             [nativeId,currentVM,callback](){
+                VariableValue _callback = callback;
                 auto pServer = serverInstances[nativeId].get();
                 //不从GC分配，减轻GC压力和内存碎片
                 VMObject argObject(ValueType::OBJECT);
@@ -281,7 +286,7 @@ void ESP32_HTTPApi_Init(VM* VMInstance){
                 std::vector<VariableValue> argument;
                 argument.push_back(CreateReferenceVariable(&argObject));
                 //auto result = worker->Init(callback->funcImpl.local_func,&argument); //当前线程运行解释器循环
-                auto result = currentVM->InvokeCallback(callback->funcImpl.local_func,argument);
+                auto result = currentVM->InvokeCallback(_callback,argument,NULL);
                 //发送返回值作为response
 
                 __ESP32_HTTP_SendResponse(result,pServer);
@@ -304,7 +309,9 @@ void ESP32_HTTPApi_Init(VM* VMInstance){
                 currentWorker->ThrowError(L"invaild callback");
                 return VariableValue();
             }
-            ScriptFunction* callback = args[1].content.function;
+            //将回调对象存入this._cb中，防止GC误回收
+            thisValue->implement.objectImpl[L"_cb"].content.ref->implement.arrayImpl.push_back(args[1]);
+            VariableValue callback = args[1]; //拷贝持有一份闭包
 
             uint32_t nativeId = (uint32_t)thisValue->implement.objectImpl[L"_id"].content.number;
             auto pServer = serverInstances[nativeId].get();
@@ -312,6 +319,7 @@ void ESP32_HTTPApi_Init(VM* VMInstance){
             //实现回调层
             pServer->on(wstring_to_string(args[0].content.ref->implement.stringImpl).c_str(),HTTP_POST,
             [nativeId,currentVM,callback](){
+                VariableValue _callback = callback;
                 auto pServer = serverInstances[nativeId].get();
                 //不从GC分配，减轻GC压力和内存碎片
                 VMObject argObject(ValueType::OBJECT);
@@ -338,7 +346,7 @@ void ESP32_HTTPApi_Init(VM* VMInstance){
                 std::vector<VariableValue> argument;
                 argument.push_back(CreateReferenceVariable(&argObject));
                 //auto result = worker->Init(callback->funcImpl.local_func,&argument); //当前线程运行解释器循环
-                auto result = currentVM->InvokeCallback(callback->funcImpl.local_func,argument);
+                auto result = currentVM->InvokeCallback(_callback,argument,NULL);
                 //发送返回值作为response
 
                 __ESP32_HTTP_SendResponse(result,pServer);

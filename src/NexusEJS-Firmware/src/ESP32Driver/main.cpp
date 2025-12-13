@@ -15,7 +15,7 @@
 #include "BuildinStdlib.h"
 #include "StringConverter.h"
 
-
+#include <BLEDevice.h>
 
 #include "ESP32Driver/Esp32Driver.h"
 
@@ -23,7 +23,16 @@
 void setup()
 {
 
+    
+
     ESP32_Platform_Init();
+
+    auto scan = BLEDevice::getScan();
+    scan->start(3000);
+    auto res = scan->getResults();
+    for(int i = 0;i < res.getCount();i++){
+        Serial.printf("name=%s\n",res.getDevice(i).getName());
+    }
 
     
 
@@ -78,12 +87,12 @@ void setup()
     uint8_t* entryNejs = (uint8_t*)platform.MemoryAlloc(entry.size());
     entry.readBytes((char*)entryNejs,entry.size());
 
-    vm.LoadPackedProgram(entryNejs,entry.size());
+    uint16_t packageId = vm.LoadPackedProgram(entryNejs,entry.size());
     Serial.println("loading success! calling entry..");
 
     std::wstring name = L"main_entry";
     uint32_t start = millis();
-    auto ret = vm.InitAndCallEntry(name);
+    auto ret = vm.InitAndCallEntry(name,packageId);
 
     Serial.printf("time => %d\n",millis() - start);
     Serial.print("return => ");

@@ -3,7 +3,10 @@
 #include <stdint.h>
 #include <string>
 #include <vector>
+#include <unordered_map>
+
 #include "PlatformImpl.h"
+
 
 
 class ByteCodeFunction
@@ -12,13 +15,18 @@ public:
     uint8_t* byteCode; 
 	uint32_t byteCodeLength; //字节码长度
     std::vector<std::wstring> arguments;
-    uint32_t constStringPoolId; 
+    std::vector<uint16_t> outsideSymbols; //存储外部符号依赖
+    uint32_t packageId; 
     std::wstring funcName;
     ByteCodeFunction() {
         byteCode = NULL;
         byteCodeLength = 0;
-        constStringPoolId = 0xFFFFFFFF;
+        packageId = 0xFFFFFFFF;
     }
+
+    ByteCodeFunction(const ByteCodeFunction& fn) = delete;
+    ByteCodeFunction operator=(const ByteCodeFunction& fn) = delete;
+
     ~ByteCodeFunction() {
         platform.MemoryFree(byteCode); //释放掉自己所有的字节码buffer
     }

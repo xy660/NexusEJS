@@ -11,6 +11,7 @@
 #include<vector>
 #include<stdint.h>
 #include<string>
+#include <cstring>
 #include <variant>
 #include <sstream>
 #include "PlatformImpl.h"
@@ -48,10 +49,17 @@ public:
         PROMISE,
         BRIDGE, //VariableValue指针代理
         REF, //VariableValue引用类型
+        UNDEFINED,
     };
 };
 
 bool isRefType(VariableValue* vrb);
+
+struct ClosureFunctionImpl {
+    ScriptFunction* sfn;
+    VMObject* closure;
+    VMObject* propObject; //存储函数对象的成员（内联的对象）*目前未实现，此为保留字段*
+};
 
 //变量引用，不存储实际对象值
 //随栈释放
@@ -106,6 +114,7 @@ public:
         std::unordered_map<std::wstring, VariableValue> objectImpl;
         std::vector<VariableValue> arrayImpl;
         std::wstring stringImpl;
+        ClosureFunctionImpl closFuncImpl;
         VMOImplement(){
         }
         ~VMOImplement() {};
@@ -179,8 +188,16 @@ public:
             break;
         }
         case ValueType::OBJECT:
+        {
             new (&implement.objectImpl) std::unordered_map<std::wstring, VariableValue>();
             break;
+        }
+        case ValueType::FUNCTION:
+        {
+            //直接初始化内存块
+            memset(&implement.closFuncImpl, 0, sizeof(ClosureFunctionImpl));
+            break;
+        }
         default:
             break;
         }
@@ -204,6 +221,8 @@ public:
             implement.objectImpl.~unordered_map();
             break;
         }
+        case ValueType::FUNCTION:
+            break; 
         default:
             break;
         }
@@ -240,7 +259,7 @@ public:
     }funcImpl;
 
     //Native&System类型方法返回VariableValue，Local方法需要等待栈帧返回填充，此方法返回NULLREF
-    VariableValue InvokeFunc(std::vector<VariableValue>& args,VMObject* thisValue,VMWorker* currentWorker);
+    VariableValue InvokeFunc(std::vector<VariableValue>& args,VMObject* thisValue,VMObject* closure,VMWorker* currentWorker);
 
     ScriptFunction(FuncType fnType) {
         type = fnType;
@@ -263,7 +282,13 @@ public:
     }
 };
 
-
+class PackageContext {
+public:
+    uint16_t packageId;
+    std::vector<VMObject*> ConstStringPool;
+    std::unordered_map<std::wstring, VariableValue> bytecodeFunctions;
+    std::wstring packageName;
+};
 
 
 inline bool operator ==(const VariableValue& left, const VariableValue& right) {

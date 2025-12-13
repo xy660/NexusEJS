@@ -160,7 +160,9 @@ std::wstring VMObject::ToString(uint16_t depth) {
         break;
     }
     case ValueType::FUNCTION:
-        break;
+    {
+        return L"<clos_fn>" + this->implement.closFuncImpl.closure->ToString();
+    }
     case ValueType::PTR: //值类型不会出现在这里
         break;
     case ValueType::PROMISE:
@@ -172,7 +174,7 @@ std::wstring VMObject::ToString(uint16_t depth) {
 }
 
 //this一定要是引用类型所以不需要BRIDGE类型
-VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)
+VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObject* thisValue, VMObject* closure, VMWorker* currentWorker)
 {
     
     switch (this->type)
@@ -206,6 +208,10 @@ VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObj
             thisValueRef.varType = ValueType::NULLREF;
         }
         defaultScope.scopeVariables[L"this"] = thisValueRef;
+
+        if (closure) {
+            defaultScope.scopeVariables[L"_clos"] = CreateReferenceVariable(closure);
+        }
 
         frame.scopeStack.push_back(defaultScope);
         currentWorker->getCallingLink().push_back(frame);

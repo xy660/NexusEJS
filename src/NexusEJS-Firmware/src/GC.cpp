@@ -181,6 +181,13 @@ void DFS_MarkObject(std::stack<VMObject*>& dfsStack,std::unordered_set<VMObject*
 				}
 			}
 		}
+		else if (obj->type == ValueType::FUNCTION) {
+			//检查内置闭包对象和prop内联对象
+			auto& funcImpl = obj->implement.closFuncImpl;
+			//直接遍历这两个内置对象的Value段压栈
+			if(funcImpl.closure) dfsStack.push(funcImpl.closure);
+			if(funcImpl.propObject) dfsStack.push(funcImpl.propObject);
+		}
 	}
 }
 
@@ -243,13 +250,7 @@ void GC::Internal_GC_Collect() {
 	//遍历栈起点，将所有持有的局部变量设置为root
 	for (auto& worker : bindingVM->workers) {
 		for (auto& fnFrame : worker->getCallingLink()) {
-			/*
-			//函数帧内的常量字符串需要标记，因为随时可能用到
-			for (auto& constStrObj : fnFrame.constStringPool) {
-				//只需要标记，他没有子引用
-				constStrObj->marked = true;
-			}
-			*/
+
 			for (auto& variable_ref : fnFrame.virtualStack) {
 				if (variable_ref.varType == ValueType::REF) { //排除三个基本值类型其他都是引用
 					//将局部变量引用的对象视作垃圾回收对象图根
@@ -276,7 +277,8 @@ void GC::Internal_GC_Collect() {
 		if (!vmo->marked && vmo->type == ValueType::OBJECT) {
 			auto findFinalize = vmo->implement.objectImpl.find(L"finalize");
 			if (findFinalize != vmo->implement.objectImpl.end()) {
-				if ((*findFinalize).second.varType == ValueType::FUNCTION) {
+				//这里使用getContentType判断是否是函数因为可能存在闭包的对象实现函数
+				if ((*findFinalize).second.getContentType() == ValueType::FUNCTION) {
 					//送入终结器调用队列，暂时不回收它的内存
 					finalizeQueue.push_back(vmo);
 					dfsStack.push(vmo); //标记他所有引用的对象，保证存活避免垂悬指针
@@ -336,14 +338,27 @@ void GC::Internal_GC_Collect() {
 	//删完垃圾开始调用终结器
 
 	for (VMObject* needFinalizeObject : finalizeQueue) {
-		ScriptFunction* finalizeFunc = needFinalizeObject->implement.objectImpl[L"finalize"].content.function;
 		
+		//ScriptFunction* finalizeFunc = needFinalizeObject->implement.objectImpl[L"finalize"].content.function;
+		
+		auto& finalizeFuncMember = needFinalizeObject->implement.objectImpl[L"finalize"];
+
+		ScriptFunction* finalizeFunc;
+		if (finalizeFuncMember.varType == ValueType::REF) {
+			finalizeFunc = finalizeFuncMember.content.ref->implement.closFuncImpl.sfn;
+		}
+		else {
+			finalizeFunc = finalizeFuncMember.content.function;
+		}
+
 		bool allowFinalize = true; //默认可以回收
 
 		if (finalizeFunc->argumentCount == 0) {
 
 			if (finalizeFunc->type == ScriptFunction::Local) {
-				auto result = InvokeBytecodeFinalizeFunc(finalizeFunc->funcImpl.local_func, needFinalizeObject);
+				//auto result = InvokeBytecodeFinalizeFunc(finalizeFunc->funcImpl.local_func, needFinalizeObject);
+				std::vector<VariableValue> args; //本身就没有参数，占位的
+				auto result = bindingVM->InvokeCallback(finalizeFuncMember, args,needFinalizeObject);
 				if (result.varType == ValueType::BOOL && result.content.boolean == false) {
 					allowFinalize = false;
 				}

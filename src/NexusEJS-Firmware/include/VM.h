@@ -5,6 +5,8 @@
 #include "ByteCode.h"
 #include "VariableValue.h"
 
+#define VM_VERSION_NUMBER 1
+
 #define DYNAMIC_ARGUMENT 0xFF
 
 class GC;
@@ -107,7 +109,9 @@ public:
 class VM {
 public:
 	//常量对象池（每一个方法绑定一个，多个方法可共享同一个）
-	std::vector<std::vector<VMObject*>> ConstObjectPools;
+	//std::vector<std::vector<VMObject*>> ConstObjectPools;
+
+	std::unordered_map<uint16_t, PackageContext> loadedPackages;
 
 	//VMWorker中包含了正在执行的函数，需要确保this指针不会以外失效
 	std::vector<std::unique_ptr<VMWorker>> workers; 
@@ -138,11 +142,15 @@ public:
 
 	//void RegisterSystemFunc(std::wstring name, uint8_t argCount, SystemFuncDef implement);
 
-	bool LoadPackedProgram(uint8_t* data, uint32_t length);
+	uint16_t LoadPackedProgram(uint8_t* data, uint32_t length);
 	void UnloadAllPackage();
-	VariableValue InitAndCallEntry(std::wstring& name);
+	VariableValue* GetBytecodeFunctionSymbol(uint16_t id, std::wstring& name);
+	PackageContext* GetPackageByName(std::wstring& name);
 
-	VariableValue InvokeCallback(ByteCodeFunction& code, std::vector<VariableValue>& args);
+	VariableValue InitAndCallEntry(std::wstring& name, uint16_t id);
+
+	//只能接收字节码函数，请勿传入原生函数
+	VariableValue InvokeCallback(VariableValue& code, std::vector<VariableValue>& args,VMObject* thisValue);
 
 
 	static void InitSingleInstanceManager();

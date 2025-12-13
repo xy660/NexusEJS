@@ -164,7 +164,7 @@ VMWorker::VMWorker(VM* current_vm) {
 }
 
 //初始化操作，加载方法字节码帧并启动解释器循环
-VariableValue VMWorker::Init(ByteCodeFunction& entry_func, std::unordered_map <std::wstring,VariableValue>* args) {
+VariableValue VMWorker::Init(ByteCodeFunction& entry_func, std::unordered_map <std::wstring, VariableValue>* args) {
 	FuncFrame frame;
 	frame.byteCode = entry_func.byteCode;
 	frame.byteCodeLength = entry_func.byteCodeLength;
@@ -221,7 +221,7 @@ void VMWorker::ThrowError(VariableValue& messageString)
 	printf("\r\n\r\n===Scope===\r\n");
 
 	for (auto& scope : currentFn.scopeStack) {
-		printf("{start:%d ,length:%d ,ep:%d attr:%d }\r\n", scope.byteCodeStart, scope.byteCodeLength, scope.ep,scope.ControlFlowFlag);
+		printf("{start:%d ,length:%d ,ep:%d attr:%d }\r\n", scope.byteCodeStart, scope.byteCodeLength, scope.ep, scope.ControlFlowFlag);
 	}
 
 
@@ -284,11 +284,63 @@ void VMWorker::ThrowError(VariableValue& messageString)
 		}
 	}
 
-	VMInstance->VM_UnhandledException(errorObject,this);
+	VMInstance->VM_UnhandledException(errorObject, this);
 }
 
 uint32_t getRawExecutionPosition(ScopeFrame* scope) {
 	return scope->spStart + scope->ep;
+}
+
+//传入当前函数帧和尝试创建闭包的函数，不会对系统函数和已经有闭包的函数进行任何处理
+static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMWorker* worker) {
+	ScriptFunction* sfn;
+	if (function.varType != ValueType::FUNCTION) {
+		return function;
+	}
+	else {
+		sfn = function.content.function;
+	}
+
+	if (sfn->type != ScriptFunction::Local) {
+		return function; //不对非字节码函数生成闭包
+	}
+	auto& outsideSym = sfn->funcImpl.local_func.outsideSymbols;
+
+	uint16_t packageId = frame->functionInfo->packageId;
+
+	auto& package = worker->VMInstance->loadedPackages[packageId];
+
+	std::unordered_map<std::wstring, VariableValue> closureContainer;
+	
+	//自底向上查找，这样获取到的同名变量就是最靠近当前作用域的
+	for (auto& scope : frame->scopeStack) {
+		for (auto& varb : scope.scopeVariables) {
+			//计算交集进行捕获
+			for (auto symid : outsideSym) {
+				if (package.ConstStringPool[symid]->implement.stringImpl == varb.first) {
+					closureContainer[varb.first] = varb.second;
+				}
+			}
+		}
+	}
+
+	/*
+	//零捕获优化：不创建闭包，直接返回原始函数
+	if (closureContainer.size() == 0) {
+		return function;
+	}
+	*/
+
+	VMObject* closureFunction = worker->VMInstance->currentGC->GC_NewObject(ValueType::FUNCTION);
+	if (closureContainer.size() > 0) {
+		VMObject* closureObject = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+		closureObject->implement.objectImpl = closureContainer; //拷贝过去
+		closureFunction->implement.closFuncImpl.closure = closureObject;
+	}
+	//propObject懒加载，必要的时候才分配节省内存
+	closureFunction->implement.closFuncImpl.sfn = sfn;
+
+	return CreateReferenceVariable(closureFunction);
 }
 
 static VariableValue* __vmworker_find_variable(VMWorker& worker, std::wstring& name) {
@@ -305,6 +357,29 @@ static VariableValue* __vmworker_find_variable(VMWorker& worker, std::wstring& n
 		}
 	}
 	//}
+
+	
+	//从闭包查找（如有）
+	auto& bottomScope = fnFrame.scopeStack[0]; //获取最底下的作用域
+	auto clos_find = bottomScope.scopeVariables.find(L"_clos"); //闭包对象通过参数隐式传递
+	if (clos_find != bottomScope.scopeVariables.end()) {
+		auto& closureObject = (*clos_find).second;
+		if (closureObject.getContentType() == ValueType::OBJECT) {
+			auto& closureObjectMap = closureObject.content.ref->implement.objectImpl;
+			auto closureInnerFind = closureObjectMap.find(name);
+			if (closureInnerFind != closureObjectMap.end()) {
+				return &(*closureInnerFind).second;
+			}
+		}
+	}
+
+	//从字节码程序集查找
+	uint16_t packageId = fnFrame.functionInfo->packageId;
+	VariableValue* find_bytecodeFunction = worker.VMInstance->GetBytecodeFunctionSymbol(packageId,name);
+	if (find_bytecodeFunction) {
+		return find_bytecodeFunction;
+	}
+
 
 	//如果都没有找到就尝试从全局变量表找
 
@@ -331,7 +406,9 @@ VariableValue VMWorker::VMWorkerTask() {
 
 	VariableValue lastestReturnValue;
 	bool hasLastestReturnValue = false; //返回值当前是否可用，每次取出都需要将其设置为false
+
 	
+
 	while (true) {
 
 		needResetLoop = false; //重置异常状态
@@ -358,7 +435,7 @@ VariableValue VMWorker::VMWorkerTask() {
 
 		if (currentFn->scopeStack.empty()) {
 			//作用域是空的，函数结束，压入默认返回值（NULLREF）
-			
+
 			//复制最终值到顶部，防止垂悬指针
 			lastestReturnValue = VariableValue();
 			hasLastestReturnValue = true;
@@ -395,7 +472,7 @@ VariableValue VMWorker::VMWorkerTask() {
 
 
 
-		
+
 
 #ifdef _DEBUG
 
@@ -410,7 +487,7 @@ VariableValue VMWorker::VMWorkerTask() {
 				printf("[%s]%d\n", IOpCodeStr[entry.first], entry.second);
 			}
 		}
-		
+
 		//======调试用=======
 			system("cls"); //clear();
 			printf("Command: %s\r\n", IOpCodeStr[op]);
@@ -465,7 +542,7 @@ VariableValue VMWorker::VMWorkerTask() {
 					res.content.ref = VMInstance->currentGC->GC_NewObject(ValueType::STRING);
 					res.content.ref->implement.stringImpl = resstr;
 				}
-				else{
+				else {
 					ThrowError(L"ADD 指令只能接受数字类型operation not vaild");
 				}
 			}
@@ -478,10 +555,10 @@ VariableValue VMWorker::VMWorkerTask() {
 			currentFn->virtualStack.pop_back();
 
 			currentFn->virtualStack.push_back(res);
-			
+
 			break;
 		}
-			
+
 		case OpCode::SUB:
 			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM - BINARY_OP_RIGHT_NUM, L"SUB指令只能接受NUM类型");
 		case OpCode::MUL:
@@ -489,7 +566,7 @@ VariableValue VMWorker::VMWorkerTask() {
 		case OpCode::DIV:
 			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM / BINARY_OP_RIGHT_NUM, L"DIV指令只能接受NUM类型");
 		case OpCode::MOD:
-			BINARY_NUMERIC_OP(fmod(BINARY_OP_LEFT_NUM, BINARY_OP_RIGHT_NUM),L"MOD指令只能接受NUM类型");
+			BINARY_NUMERIC_OP(fmod(BINARY_OP_LEFT_NUM, BINARY_OP_RIGHT_NUM), L"MOD指令只能接受NUM类型");
 		case OpCode::NOT:
 		{
 			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
@@ -527,19 +604,19 @@ VariableValue VMWorker::VMWorkerTask() {
 			break;
 		}
 		case OpCode::SHL:
-			BINARY_NUMERIC_OP((double)((uint64_t)BINARY_OP_LEFT_NUM << (uint64_t)BINARY_OP_RIGHT_NUM),L"SHL指令只能接受NUM");
+			BINARY_NUMERIC_OP((double)((uint64_t)BINARY_OP_LEFT_NUM << (uint64_t)BINARY_OP_RIGHT_NUM), L"SHL指令只能接受NUM");
 		case OpCode::SHR:
 			BINARY_NUMERIC_OP((double)((uint64_t)BINARY_OP_LEFT_NUM >> (uint64_t)BINARY_OP_RIGHT_NUM), L"SHL指令只能接受NUM");
 		case OpCode::EQUAL:
 		{
-			VariableValue* right = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable(); 
-			VariableValue* left = currentFn->virtualStack[currentFn->virtualStack.size() - 2].getRawVariable(); 
-			VariableValue res; 
-			res.varType = ValueType::BOOL; 
-			res.content.boolean = (*left) == (*right); 
-			currentFn->virtualStack.pop_back(); 
-			currentFn->virtualStack.pop_back(); 
-			currentFn->virtualStack.push_back(res); 
+			VariableValue* right = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable();
+			VariableValue* left = currentFn->virtualStack[currentFn->virtualStack.size() - 2].getRawVariable();
+			VariableValue res;
+			res.varType = ValueType::BOOL;
+			res.content.boolean = (*left) == (*right);
+			currentFn->virtualStack.pop_back();
+			currentFn->virtualStack.pop_back();
+			currentFn->virtualStack.push_back(res);
 			break;
 		}
 		case OpCode::NOT_EQUAL:
@@ -580,7 +657,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			scope.ep = 0;
 			currentScope->ep += scope.byteCodeLength + OpCode::instructionSize[op]; //栈帧执行指针跳过，这样新的作用域销毁后执行下面的
 			currentFn->scopeStack.push_back(scope);
-			
+
 			continue; //currentScope已被vector重新分配，已经手动不进指令，重启循环进入新scope
 		}
 		case OpCode::BREAK:
@@ -650,8 +727,8 @@ VariableValue VMWorker::VMWorkerTask() {
 			memcpy(&strid, currentFn->byteCode + rawep + 1, sizeof(uint16_t));
 
 			VariableValue v;
-			//VMObject* str = &currentFn->constStringPool[strid];
-			auto& strPool = VMInstance->ConstObjectPools[currentFn->functionInfo->constStringPoolId];
+			uint16_t id = currentFn->functionInfo->packageId;
+			auto& strPool = VMInstance->loadedPackages[id].ConstStringPool;
 			VMObject* str = strPool[strid];
 			v.varType = ValueType::REF;
 			v.content.ref = str;
@@ -693,7 +770,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			VariableValue* codition = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable();
 			uint32_t addr;
 			//= *(uint32_t*)(currentFn->byteCode + rawep + 1);
-			memcpy(&addr, currentFn->byteCode + rawep + 1,sizeof(uint32_t));
+			memcpy(&addr, currentFn->byteCode + rawep + 1, sizeof(uint32_t));
 			if (!codition->content.boolean) {
 				currentScope->ep += addr;
 
@@ -706,13 +783,22 @@ VariableValue VMWorker::VMWorkerTask() {
 		{
 			//[栈顶][参数1..N][函数对象][...]
 			uint8_t op_argCount = *(currentFn->byteCode + rawep + 1);
-			VariableValue* funcRef = currentFn->virtualStack[currentFn->virtualStack.size() - 1 - op_argCount].getRawVariable();
-			if (funcRef->getContentType() != ValueType::FUNCTION) {
+			VariableValue* funcRefVal = currentFn->virtualStack[currentFn->virtualStack.size() - 1 - op_argCount].getRawVariable();
+			if (funcRefVal->getContentType() != ValueType::FUNCTION) {
 				ThrowError(L"not a function");
 				continue;
 			}
 
-			auto& funcInfo = funcRef->content.function;
+			ScriptFunction* funcInfo;
+			VMObject* closureObject;
+			if (funcRefVal->varType == ValueType::REF) {
+				funcInfo = funcRefVal->content.ref->implement.closFuncImpl.sfn;
+				closureObject = funcRefVal->content.ref->implement.closFuncImpl.closure;
+			}
+			else {
+				funcInfo = funcRefVal->content.function;
+				closureObject = NULL;
+			}
 			uint8_t argCount = funcInfo->argumentCount;
 
 			//不是可变参数方法检查参数数量
@@ -726,36 +812,52 @@ VariableValue VMWorker::VMWorkerTask() {
 			//从栈顶顶开始复制参数
 			for (int i = 0; i < op_argCount; i++) {
 				//对压入参数列表的VariableValue归一化值复制，避免弹出导致引用失效
-				arguments.push_back(*currentFn->virtualStack[currentFn->virtualStack.size() - 1 - i].getRawVariable());
+				VariableValue arg = *currentFn->virtualStack[currentFn->virtualStack.size() - 1 - i].getRawVariable();
+				if (arg.varType == ValueType::FUNCTION) {
+					//对可能逃逸的值函数进行闭包捕获
+					arg = __make_closure(arg, currentFn, this);
+				}
 				
+				arguments.push_back(arg);
 			}
+
 
 			//弹出函数对象和参数
 			currentFn->virtualStack.resize(currentFn->virtualStack.size() - op_argCount - 1);
-			
-			if (funcRef->content.function->type == ScriptFunction::Local) {
+
+			if (funcInfo->type == ScriptFunction::Local) {
 				currentScope->ep += OpCode::instructionSize[op]; //接下来要改变栈帧了，代替循环尾部进行不进
-				funcRef->content.function->InvokeFunc(arguments, funcRef->thisValue,this);
+				funcInfo->InvokeFunc(arguments, funcRefVal->thisValue,closureObject, this);
+				
 				continue;
 			}
-			else if(funcRef->content.function->type == ScriptFunction::System) {
+			else if (funcInfo->type == ScriptFunction::System) {
 				currentGC->enterNativeFunc(); //GC标记原生边界
-				auto funcResult = funcRef->content.function->InvokeFunc(arguments, funcRef->thisValue, this);
+				auto funcResult = funcInfo->InvokeFunc(arguments, funcRefVal->thisValue,NULL, this);
 				currentGC->leaveNativeFunc();
 				//如果原生函数未发生异常就压入返回值
 				if (!needResetLoop) {
 					currentFn->virtualStack.push_back(funcResult);
 				}
 			}
-			
+
 
 
 			break;
 		}
 		case OpCode::RET:
 		{
+			VariableValue* retValue = currentFn->virtualStack.back().getRawVariable();
+
+			//如果是函数就处理闭包
+			VariableValue changeBuffer; //如果需要改变地址，用其作为缓存区
+			if (retValue->getContentType() == ValueType::FUNCTION) {
+				changeBuffer = __make_closure(*retValue, currentFn, this);
+				retValue = &changeBuffer;
+			}
+
 			//复制最终值到顶部，防止垂悬指针
-			lastestReturnValue = *currentFn->virtualStack.back().getRawVariable();
+			lastestReturnValue = *retValue;
 			hasLastestReturnValue = true;
 			currentFn->virtualStack.pop_back();
 			callFrames.pop_back(); //弹出栈帧
@@ -786,6 +888,7 @@ VariableValue VMWorker::VMWorkerTask() {
 		case OpCode::THROW:
 		{
 			auto varb = currentFn->virtualStack.back().getRawVariable();
+
 			if (varb->getContentType() == ValueType::STRING) {
 
 				ThrowError(*varb->getRawVariable());
@@ -797,15 +900,15 @@ VariableValue VMWorker::VMWorkerTask() {
 				exmsg.content.ref->implement.stringImpl = L"exception has thrown";
 				ThrowError(exmsg);
 			}
-			
-			
+
+
 
 			continue; //抛出异常后重置VM循环状态
 		}
 		case OpCode::NEW_OBJ:
 		{
 			VMObject* new_object = VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
-			
+
 			VariableValue v;
 			v.varType = ValueType::REF;
 			v.content.ref = new_object;
@@ -830,6 +933,13 @@ VariableValue VMWorker::VMWorkerTask() {
 				ThrowError(L"try assign readonly value");
 				continue;
 			}
+			//如果是函数就处理闭包
+			VariableValue changeBuffer; //如果需要改变地址，用其作为缓存区
+			if (right->getContentType() == ValueType::FUNCTION) {
+				changeBuffer = __make_closure(*right, currentFn, this);
+				right = &changeBuffer;
+			}
+
 			left->varType = right->varType;
 			left->content = right->content;
 			currentFn->virtualStack.pop_back(); //清理掉右操作数
@@ -842,10 +952,18 @@ VariableValue VMWorker::VMWorkerTask() {
 			memcpy(&nameStringIndex, currentFn->byteCode + rawep + 1, sizeof(uint16_t));
 			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
 
-			auto& strPool = VMInstance->ConstObjectPools[currentFn->functionInfo->constStringPoolId];
+			//如果是函数就处理闭包
+			VariableValue changeBuffer; //如果需要改变地址，用其作为缓存区
+			if (target->getContentType() == ValueType::FUNCTION) {
+				changeBuffer = __make_closure(*target, currentFn, this);
+				target = &changeBuffer;
+			}
+
+			uint16_t id = currentFn->functionInfo->packageId;
+			auto& strPool = VMInstance->loadedPackages[id].ConstStringPool;
 			VMObject* nameStringObject = strPool[nameStringIndex];
-			
-			
+
+
 			if (currentScope->scopeVariables.find(nameStringObject->implement.stringImpl) == currentScope->scopeVariables.end()) {
 				currentScope->scopeVariables[nameStringObject->implement.stringImpl] = *target;
 			}
@@ -897,6 +1015,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			VariableValue* parent = currentFn->virtualStack[currentFn->virtualStack.size() - 2].getRawVariable();
 			VariableValue result;
 			ValueType::IValueType parentType = parent->getContentType();
+			restart_get_field: //类型切换复用标签
 			if (parentType == ValueType::ARRAY) {
 				//Array类型返回的不是BRIDGE类型，比如内置方法/length等属性
 				//数组元素通过Array.get方法返回的BRIDGE类型VariableValue实现修改和访问
@@ -904,6 +1023,25 @@ VariableValue VMWorker::VMWorkerTask() {
 			}
 			else if (parentType == ValueType::STRING) {
 				result = GetStringValSymbol(fieldName->content.ref->implement.stringImpl, parent->content.ref);
+			}
+			else if (parentType == ValueType::FUNCTION && parent->varType == ValueType::REF) {
+				//函数对象允许存储属性
+
+				//需要时分配
+				if (!parent->content.ref->implement.closFuncImpl.propObject) {
+					parent->content.ref->implement.closFuncImpl.propObject = currentGC->GC_NewObject(ValueType::OBJECT);
+				}
+
+				VMObject* propObject = parent->content.ref->implement.closFuncImpl.propObject;
+
+				auto& obj_container = propObject->implement.objectImpl;
+				auto key = fieldName->ToString();
+				result.varType = ValueType::BRIDGE;
+
+				//从符号表取出的拷贝引用设置thisValue绑定
+				result.content.bridge_ref = &obj_container[key];
+				result.content.bridge_ref->thisValue = parent->content.ref;
+
 			}
 			else if (parentType == ValueType::OBJECT) {
 				//返回BRIDGE类型，确保修改对象可以修改obj.member
@@ -930,11 +1068,12 @@ VariableValue VMWorker::VMWorkerTask() {
 						result.content.bridge_ref->thisValue = parent->content.ref;
 					}
 				}
-				
+
 			}
 
 			if (result.varType == ValueType::NULLREF) {
 				ThrowError(L"can not find symbol:" + fieldName->ToString());
+				continue;
 			}
 
 			currentFn->virtualStack.resize(currentFn->virtualStack.size() - 2);
@@ -961,7 +1100,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			break;
 		}
 
-		if(!needResetLoop) //如果发生需要重置的操作（比如异常抛出）则不进行不进
+		if (!needResetLoop) //如果发生需要重置的操作（比如异常抛出）则不进行不进
 			currentScope->ep += OpCode::instructionSize[op];
 	}
 
@@ -1001,47 +1140,47 @@ void VM::DestroySingleInstanceManager() {
 		return;
 	}
 	single_instance_man_inited = false;
-	
+
 	ArrayManager_Destroy();
 	StringManager_Destroy();
 	ObjectManager_Destroy();
 	BuildinStdlib_Destroy();
 }
 
-VM::VM(GC* gc){
+VM::VM(GC* gc) {
 	//初始化全局单例的管理器
 	InitSingleInstanceManager();
 
-	
+
 	//初始化自身
 	currentGC = gc;
 	currentGC->GCInit(this);
 	globalSymbolLock = platform.MutexCreate();
-	
+
 	//内置全局对象，上面查找需要用到，然后后面文档提一下不要乱改global对象类型
 	//后续VariableValue内置一个readonly属性吧，防止开发者乱改
 	auto globalObject = currentGC->GC_NewObject(ValueType::OBJECT);
 	auto globalObjectRef = CreateReferenceVariable(globalObject);
 	globalObjectRef.readOnly = true;
 	std::wstring globalObjectName = L"global";
-	storeGlobalSymbol(globalObjectName,globalObjectRef);
+	storeGlobalSymbol(globalObjectName, globalObjectRef);
 
 
-	
-} 
+
+}
 
 //析构所有资源：方法单例+全局符号表+最后一次GC 
 //请在GC析构之前析构VM
 VM::~VM()
 {
 	platform.MutexDestroy(globalSymbolLock);
-	
+
 	//清理掉加载进来的字节码方法
 	for (ScriptFunction* fn : ScriptFunctionObjects) {
 		fn->~ScriptFunction();
 		platform.MemoryFree(fn);
 	}
-	
+
 	globalSymbols.clear();
 	workers.clear();
 	tasks.clear();
@@ -1079,7 +1218,7 @@ VariableValue VM::CreateSystemFunc(uint8_t argCount, SystemFuncDef implement) {
 
 
 
-void VM::VM_UnhandledException(VMObject* exceptionObject,VMWorker* worker)
+void VM::VM_UnhandledException(VMObject* exceptionObject, VMWorker* worker)
 {
 	//todo
 	//当前worker未处理异常触发此
@@ -1088,7 +1227,7 @@ void VM::VM_UnhandledException(VMObject* exceptionObject,VMWorker* worker)
 
 	std::wstring errorString = exceptionObject->ToString();
 
-	printf("\r\nUnhandled Exception %s Process Waitting...\r\n",wstring_to_string(errorString).c_str());
+	printf("\r\nUnhandled Exception %s Process Waitting...\r\n", wstring_to_string(errorString).c_str());
 
 	worker->getCallingLink().clear(); //终止worker
 }

@@ -4,8 +4,12 @@
 #include <cstring>
 #include <vector>
 
+#define CHAR_SIZE 2
+
+uint16_t packageIdSeed = 1;
+
 //此方法不保证线程安全，请在VM初始化前安全调用或加锁调用
-bool VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
+uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 
 	uint8_t magic[] = { 0x78, 0x79, 0x78, 0x79 };
 
@@ -17,7 +21,28 @@ bool VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 
 	uint32_t pos = 4;
 
-	std::vector<VMObject*> ConstStringPool; //字符串对象常量池
+	//nejs文件VM要求最低版本号
+	uint16_t version = 0;
+	memcpy(&version, data + pos, sizeof(uint16_t));
+	pos += sizeof(uint16_t);
+
+	if (version > VM_VERSION_NUMBER) {
+		return 0; //不兼容版本
+	}
+
+	uint16_t packageNameLnegth = 0;
+	memcpy(&packageNameLnegth, data + pos, sizeof(uint16_t));
+	pos += sizeof(uint16_t);
+
+	std::wstring packageName;
+	packageName.resize(packageNameLnegth);
+	memcpy(&packageName[0], data + pos, CHAR_SIZE * packageNameLnegth);
+	pos += CHAR_SIZE * packageNameLnegth;
+
+
+	//构造新的程序包上下文
+	uint32_t packageId = packageIdSeed++;
+	std::vector<VMObject*>& ConstStringPool = this->loadedPackages[packageId].ConstStringPool;//字符串对象常量池
 
 	uint32_t stringPoolSize;
 	//= *(uint32_t*)(data + pos);
@@ -32,43 +57,48 @@ bool VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 		new (vmo) VMObject(ValueType::STRING);
 		vmo->flag_isLocalObject = true; //常量标志，表示对象不受GC管理
 		vmo->implement.stringImpl.resize(length);
-		memcpy(&vmo->implement.stringImpl[0], data + pos, length * sizeof(wchar_t));
+		memcpy(&vmo->implement.stringImpl[0], data + pos, length * CHAR_SIZE);
 		//vmo->implement.stringImpl = std::wstring((wchar_t*)(data + pos), length);
 		ConstStringPool.push_back(vmo);
-		pos += sizeof(wchar_t) * length;
+		pos += CHAR_SIZE * length;
 	}
-
-	this->ConstObjectPools.push_back(ConstStringPool);
-	uint32_t constStringPoolId = this->ConstObjectPools.size() - 1;
-
-
+	
 	while (pos < length) {
 
-		uint16_t fnNameLength;
-		//= *(uint16_t*)(data + pos);
-		memcpy(&fnNameLength, data + pos, sizeof(uint16_t));
+		//读取函数名
+		uint16_t fnNameStrId;
+		memcpy(&fnNameStrId, data + pos, sizeof(uint16_t));
 		pos += sizeof(uint16_t);
-		//std::wstring fnName((wchar_t*)(data + pos),fnNameLength);
-		std::wstring fnName;
-		fnName.resize(fnNameLength);
-		memcpy(&fnName[0], data + pos, fnNameLength * sizeof(wchar_t));
-		pos += sizeof(wchar_t) * fnNameLength;
+		std::wstring& fnName = ConstStringPool[fnNameStrId]->implement.stringImpl;
 
 		uint8_t argumentCount = *(data + pos); //本身1字节不需要拷贝
 		pos += sizeof(uint8_t);
 		std::vector<std::wstring> arguments;
 		for (int i = 0; i < argumentCount; i++) {
-			uint16_t argumentNameLength;
-			//= *(uint16_t*)(data + pos);
-			memcpy(&argumentNameLength, data + pos, sizeof(uint16_t));
+			//读取参数
+			uint16_t argumentNameStrId;
+			memcpy(&argumentNameStrId, data + pos, sizeof(uint16_t));
 			pos += sizeof(uint16_t);
 
-			std::wstring argumentName;
-			argumentName.resize(argumentNameLength);
-			memcpy(&argumentName[0], data + pos, argumentNameLength * sizeof(wchar_t));
+			std::wstring& argumentName = ConstStringPool[argumentNameStrId]->implement.stringImpl;
+
 			arguments.push_back(argumentName);
-			pos += sizeof(wchar_t) * argumentNameLength;
 		}
+
+		//读取外部符号依赖
+		uint16_t outsizeSymCount = 0;
+		memcpy(&outsizeSymCount, data + pos, sizeof(uint16_t));
+		pos += sizeof(uint16_t);
+		std::vector<uint16_t> outsideSymbols;
+		outsideSymbols.reserve(outsizeSymCount);
+		for (int i = 0; i < outsizeSymCount; i++) {
+			uint16_t symbolStrId = 0;
+			memcpy(&symbolStrId, data + pos, sizeof(uint16_t));
+			pos += sizeof(uint16_t);
+			outsideSymbols.push_back(symbolStrId);
+		}
+
+
 		uint32_t byteCodeLength;
 		//= *(uint32_t*)(data + pos);
 		memcpy(&byteCodeLength, data + pos, sizeof(uint32_t));
@@ -82,17 +112,21 @@ bool VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 		fn.varType = ValueType::FUNCTION;
 		fn.content.function = (ScriptFunction*)platform.MemoryAlloc(sizeof(ScriptFunction));
 		new (fn.content.function) ScriptFunction(ScriptFunction::Local);
-		this->ScriptFunctionObjects.push_back(fn.content.function); //创建存储到全局方法单例表
+		//这个注释掉的废弃，目前存储于包体上下文
+		//this->ScriptFunctionObjects.push_back(fn.content.function); 
 		fn.content.function->argumentCount = arguments.size();
 		fn.content.function->funcImpl.local_func.byteCode = byteCodeBuffer;
 		fn.content.function->funcImpl.local_func.byteCodeLength = byteCodeLength;
 		fn.content.function->funcImpl.local_func.funcName = fnName;
 		fn.content.function->funcImpl.local_func.arguments = arguments;
-		fn.content.function->funcImpl.local_func.constStringPoolId = constStringPoolId;
-		this->storeGlobalSymbol(fnName, fn);
+		fn.content.function->funcImpl.local_func.outsideSymbols = outsideSymbols;
+		fn.content.function->funcImpl.local_func.packageId = packageId;
+		//this->storeGlobalSymbol(fnName, fn);
+		this->loadedPackages[packageId].bytecodeFunctions[fnName] = fn;
+		this->loadedPackages[packageId].packageName = packageName;
 	}
 
-	return true;
+	return packageId;
 }
 
 void VM::UnloadAllPackage() {
@@ -100,24 +134,55 @@ void VM::UnloadAllPackage() {
 	for (auto pScriptFunc : ScriptFunctionObjects) {
 		platform.MemoryFree(pScriptFunc);
 	}
-	//释放所有常量池的内存
-	for (auto& objPool : ConstObjectPools) {
-		for (auto pConstObject : objPool) {
+	//释放所有加载的程序包内存
+	for (auto& package : loadedPackages) {
+		for (auto pConstObject : package.second.ConstStringPool) {
 			platform.MemoryFree(pConstObject);
+		}
+		for (auto pScriptFunction : package.second.bytecodeFunctions) {
+			platform.MemoryFree(pScriptFunction.second.content.function);
 		}
 	}
 }
 
-VariableValue VM::InitAndCallEntry(std::wstring& name) {
+VariableValue* VM::GetBytecodeFunctionSymbol(uint16_t id, std::wstring& name) {
+	platform.MutexLock(globalSymbolLock);
+	auto& bytecodeFuncs = this->loadedPackages[id].bytecodeFunctions;
+	auto bcfnFind = bytecodeFuncs.find(name);
+	if (bcfnFind != bytecodeFuncs.end()) {
+		platform.MutexUnlock(globalSymbolLock);
+		return &(*bcfnFind).second;
+	}
+	platform.MutexUnlock(globalSymbolLock);
+	return NULL;
+}
+
+PackageContext* VM::GetPackageByName(std::wstring& name) {
+	for (auto& pair : loadedPackages) {
+		if (pair.second.packageName == name) {
+			return &pair.second;
+		}
+	}
+	return NULL;
+}
+
+VariableValue VM::InitAndCallEntry(std::wstring& name,uint16_t id) {
 	platform.MutexLock(this->globalSymbolLock);
 	this->workers.push_back(std::unique_ptr<VMWorker>(new VMWorker(this)));
 	VMWorker* worker = this->workers.back().get();
-	platform.MutexUnlock(this->globalSymbolLock);
 
-	//getGlobalSymbol函数本身自带锁，避免死锁
-	VariableValue* entryRef = getGlobalSymbol(name);
-
-	platform.MutexLock(this->globalSymbolLock);
+	if (loadedPackages.find(id) == loadedPackages.end()) {
+		platform.MutexUnlock(this->globalSymbolLock); //无此id返回NULLREF
+		return VariableValue();
+	}
+	PackageContext& package = loadedPackages[id];
+	
+	auto entryRefIt = package.bytecodeFunctions.find(name);
+	VariableValue* entryRef = NULL;
+	if (entryRefIt != package.bytecodeFunctions.end()) {
+		entryRef = &(*entryRefIt).second;
+	}
+	
 	if (entryRef->varType != ValueType::FUNCTION) {
 		this->workers.pop_back();
 		return VariableValue();
@@ -132,20 +197,50 @@ VariableValue VM::InitAndCallEntry(std::wstring& name) {
 
 }
 
-VariableValue VM::InvokeCallback(ByteCodeFunction& code, std::vector<VariableValue>& args)
+VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableValue>& args,VMObject* thisValue)
 {
-	//加锁
-	platform.MutexLock(this->globalSymbolLock);
-	this->workers.push_back(std::unique_ptr<VMWorker>(new VMWorker(this)));
-	VMWorker* worker = this->workers.back().get();
-	platform.MutexUnlock(this->globalSymbolLock);
-	if (args.size() != code.arguments.size()) {
-		return VariableValue();
+	ScriptFunction* code = NULL;
+	if (function.varType == ValueType::REF && function.content.ref->type == ValueType::FUNCTION) {
+		code = function.content.ref->implement.closFuncImpl.sfn;
 	}
-	std::unordered_map<std::wstring, VariableValue> argumentMap;
-	for (int i = 0; i < args.size(); i++) {
-		argumentMap[code.arguments[i]] = args[i];
+	else if (function.varType == ValueType::FUNCTION) {
+		code = function.content.function;
+	}
+	else {
+		return VariableValue(); //静默失败
 	}
 
-	return worker->Init(code, &argumentMap);
+	if (code->type != ScriptFunction::Local) {
+		return VariableValue();
+	}
+	//参数不相等也失败
+	if (args.size() != code->funcImpl.local_func.arguments.size()) {
+		return VariableValue();
+	}
+	//赋值下参数
+	std::unordered_map<std::wstring, VariableValue> argumentMap;
+	for (int i = 0; i < args.size(); i++) {
+		argumentMap[code->funcImpl.local_func.arguments[i]] = args[i];
+	}
+
+	//如果是对象的那种函数他是带闭包的，需要设置一下闭包环境(前提closure不为NULL)
+	if (function.varType == ValueType::REF && 
+		function.content.ref->implement.closFuncImpl.closure) {
+		argumentMap[L"_clos"] = CreateReferenceVariable(
+			function.content.ref->implement.closFuncImpl.closure);
+	}
+
+	//可选this指针
+	if (thisValue) {
+		argumentMap[L"this"] = CreateReferenceVariable(thisValue);
+	}
+
+	VMWorker* worker = new VMWorker(this); //创建临时Worker
+	//加锁
+	platform.MutexLock(this->globalSymbolLock);
+	this->workers.push_back(std::unique_ptr<VMWorker>(worker));
+	platform.MutexUnlock(this->globalSymbolLock);
+
+
+	return worker->Init(code->funcImpl.local_func, &argumentMap);
 }
