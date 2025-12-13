@@ -52,7 +52,12 @@ println(man.getInfo());
 
 ## 闭包
 
-NexusEJS目前暂时不支持闭包，也是为了内存而考虑，根据反馈未来可能计划支持闭包，通常更推荐显式传递需要的信息，避免对象生命周期过长造成内存泄漏
+NNexusEJS支持闭包，闭包将在以下情况触发：
+- 作为参数调用
+- 作为返回值
+- 赋值
+
+**请合理使用闭包，避免造成不必要内存占用，闭包仅会在lambda表达式或函数引用作用域外变量才会触发**
 
 示例：
 
@@ -151,6 +156,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
