@@ -52,7 +52,7 @@ println(man.getInfo());
 
 ## 闭包
 
-NNexusEJS支持闭包，闭包将在以下情况触发：
+NexusEJS支持闭包，闭包将在以下情况触发：
 - 作为参数调用
 - 作为返回值
 - 赋值
@@ -65,20 +65,13 @@ NNexusEJS支持闭包，闭包将在以下情况触发：
 
 function getCounter(){
     let cnt = 0;
-    return function inc(){
-        cnt++;  //error: can't find symbol:cnt
+    return ()=>{
+        cnt++; 
     }
 }
 
-function getCounter(){
-    let cnt = 0;
-    return {
-        innerCnt:cnt,
-        inc(){
-            this.innerCnt++; //worked
-        }
-    }
-}
+let inc = getCounter();
+inc();
 
 ```
 
@@ -156,6 +149,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
