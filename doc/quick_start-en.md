@@ -60,22 +60,15 @@ NexusEJS supports closures, which are triggered in the following cases:
 Example:
 
 ```javascript
-function getCounter() {
+function getCounter(){
     let cnt = 0;
-    return function inc() {
-        cnt++;  // Error: can't find symbol: cnt
+    return ()=>{
+        cnt++; 
     }
 }
 
-function getCounter() {
-    let cnt = 0;
-    return {
-        innerCnt: cnt,
-        inc() {
-            this.innerCnt++; // Works
-        }
-    }
-}
+let inc = getCounter();
+inc();
 ```
 
 ## Comparison Operators
