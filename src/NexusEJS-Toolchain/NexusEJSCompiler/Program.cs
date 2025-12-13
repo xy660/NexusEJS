@@ -28,29 +28,33 @@ namespace CompileLab
                 foreach (var cc in result)
                 {
                     Console.WriteLine("FuncName: " + cc.Key);
-                    Console.WriteLine("Args: " + string.Join(",", cc.Value.Item1));
-                    Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.Item2) + "]");
-                    Console.WriteLine("asm: \r\n" + cc.Value.Item4);
-                    foreach (var map in cc.Value.Item3)
+                    Console.WriteLine("Args: " + string.Join(",", cc.Value.arguments));
+                    Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.bytecode) + "]");
+                    Console.WriteLine("asm: \r\n" + cc.Value.asm);
+                    foreach (var map in cc.Value.mapper)
                     {
                         Console.WriteLine($"offset:{map.offset} <-> line:{map.line}");
                     }
                 }
 
-                byte[] packed = Compiler.PackFunction(comp.ConstString,result);
-
-                Console.WriteLine("packed: [" + string.Join(",", packed) + "]");
+                
 
 
                 string outputName = args[0].Substring(0,args[0].Length - args[0].Split(".").Last().Length - 1) + ".nejs";
+                string packageName = Path.GetFileNameWithoutExtension(outputName);
                 string mapOutputName = outputName + ".map";
+
+                byte[] packed = Compiler.PackFunction(packageName,comp.ConstString, result);
+
+                Console.WriteLine("packed: [" + string.Join(",", packed) + "]");
+
                 File.WriteAllBytes(outputName, packed);
                 StringBuilder mapbuf = new StringBuilder();
                 mapbuf.Append($"{outputName.Replace("\\", "/").Split('/').Last()} {result.Count}\n");
                 foreach(var cc in result)
                 {
-                    mapbuf.Append($"{cc.Key} {cc.Value.Item3.Count}\n");
-                    foreach (var map in cc.Value.Item3)
+                    mapbuf.Append($"{cc.Key} {cc.Value.mapper.Count}\n");
+                    foreach (var map in cc.Value.mapper)
                     {
                         mapbuf.Append($"{map.offset}|{map.line}\n");
                     }
@@ -76,14 +80,14 @@ namespace CompileLab
                 foreach(var cc in result)
                 {
                     Console.WriteLine("FuncName: " + cc.Key);
-                    Console.WriteLine("Args: " + string.Join(",", cc.Value.Item1));
-                    Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.Item3) + "]");
-                    Console.WriteLine("asm: \r\n" + cc.Value.Item4);
+                    Console.WriteLine("Args: " + string.Join(",", cc.Value.arguments));
+                    Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.bytecode) + "]");
+                    Console.WriteLine("asm: \r\n" + cc.Value.asm);
                 }
                 //VariableValue result = new VM().RunByteCode(byteCode);
                 //Console.WriteLine("result: " +  result.Value);
 
-                byte[] packed = Compiler.PackFunction(comp.ConstString,result);
+                byte[] packed = Compiler.PackFunction("unnamed_package",comp.ConstString,result);
 
                 Console.WriteLine("packed: [" + string.Join(",", packed) + "]");
             }

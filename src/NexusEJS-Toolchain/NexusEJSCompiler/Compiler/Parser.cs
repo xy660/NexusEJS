@@ -251,7 +251,11 @@ namespace ScriptRuntime.Core
                 var varAST = new ASTNode(ASTNode.ASTNodeType.VariableDefination, PeekToken().raw, PeekToken().line);
                 return varAST;
             }
-            
+            else if (val.raw == "const") //todo: 目前const是一个占位符，行为和let一致，未来需要完善功能
+            {
+                var varAST = new ASTNode(ASTNode.ASTNodeType.VariableDefination, PeekToken().raw, PeekToken().line);
+                return varAST;
+            }
             else if (val.raw == "function")
             {
                 var argsToken = PollToken();

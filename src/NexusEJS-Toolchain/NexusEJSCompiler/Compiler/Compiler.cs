@@ -1,18 +1,40 @@
-﻿using System;
+﻿using nejsc.Utils;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using nejsc.Utils;
+using System.Reflection.Metadata.Ecma335;
 
 namespace ScriptRuntime.Core
 {
 
-    //为了防止搞混，栈实现是List<VariableValue> VM实现时弹出栈需要先拆箱
     //地址都是相对地址
 
+    public class FunctionInfo
+    {
+        public string[] arguments;
+        public string name;
+        public List<(uint offset, uint line)> mapper;
+        public byte[] bytecode;
+        public ushort[] outsizeSymbolsId;
+        public string asm;
+
+        public FunctionInfo(string name,string[] arguments, List<(uint offset, uint line)> mapper, byte[] bytecode, ushort[] outsizeSym,string asm)
+        {
+            this.name = name;
+            this.arguments = arguments;
+            this.mapper = mapper;
+            this.bytecode = bytecode;
+            this.outsizeSymbolsId = outsizeSym;
+            this.asm = asm;
+        }
+    }
 
     class Compiler
     {
+        public static ushort Version = 1;
         enum OpCode
         {
             //运算符
@@ -268,6 +290,7 @@ namespace ScriptRuntime.Core
     { OpCode.NEW_OBJ,1 },
 };
 
+
         public int CalculateStackNetEffect(byte[] bytecode)
         {
             int effect = 0;
@@ -333,7 +356,7 @@ namespace ScriptRuntime.Core
         public List<string> ConstString = new List<string>();
 
         //编译出来的方法体
-        public static Dictionary<string, ValueTuple<string[], byte[],List<(uint offset,uint line)>, string>> functions = new();
+        public static Dictionary<string, FunctionInfo> functions = new();
 
         public Compiler()
         {
@@ -348,13 +371,28 @@ namespace ScriptRuntime.Core
         }
 
         //将字节码数据链接成一个可执行包
-        public static byte[] PackFunction(List<string> ConstStringPool,Dictionary<string, ValueTuple<string[], byte[], List<(uint offset, uint line)>, string>> functions)
+        public static byte[] PackFunction(string packageName,List<string> ConstStringPool, Dictionary<string, FunctionInfo> functions)
         {
-            //[magic][常量池字符串数量(uint)]{[字符串长度(uint)][unicode字符串]...}[函数名长度ushort][函数名unicode][参数数量byte]{[参数1名长度ushort][参数1名]...}[字节码长度int][字节码]
+            //[magic]
+            //[ushort版本号]
+            //[ushort包名长度][包名]
+            //[常量池字符串数量(uint)]{[字符串长度(uint)][unicode字符串]...}
+            //{
+            //  [函数名字符串id][参数数量byte]{[参数1字符串id]...}
+            //  [外部符号id数量ushort]{[外部符号id]...}
+            //  [字节码长度int][字节码]
+            //}
 
             using (var ms = new MemoryStream())
             {
                 ms.Write(new byte[] { 0x78, 0x79, 0x78, 0x79 }); //魔数 "xyxy"
+
+                //写入版本号
+                ms.Write(BitConverter.GetBytes(Version));
+                
+                //写入包名
+                ms.Write(BitConverter.GetBytes((ushort)packageName.Length));
+                ms.Write(Encoding.Unicode.GetBytes(packageName));
 
                 ms.Write(BitConverter.GetBytes(ConstStringPool.Count));
                 foreach(var cstr in ConstStringPool)
@@ -365,16 +403,23 @@ namespace ScriptRuntime.Core
 
                 foreach (var func in functions)
                 {
-                    ms.Write(BitConverter.GetBytes((ushort)func.Key.Length));
-                    ms.Write(Encoding.Unicode.GetBytes(func.Key));
-                    ms.WriteByte((byte)func.Value.Item1.Length);
-                    for (int i = 0; i < func.Value.Item1.Length; i++)
+                    //写入函数名
+                    ms.Write(BitConverter.GetBytes((ushort)ConstStringPool.IndexOf(func.Key)));
+                    //写入参数表
+                    ms.WriteByte((byte)func.Value.arguments.Length);
+                    for (int i = 0; i < func.Value.arguments.Length; i++)
                     {
-                        ms.Write(BitConverter.GetBytes((ushort)func.Value.Item1[i].Length));
-                        ms.Write(Encoding.Unicode.GetBytes(func.Value.Item1[i]));
+                        ms.Write(BitConverter.GetBytes((ushort)ConstStringPool.IndexOf(func.Value.arguments[i])));
                     }
-                    ms.Write(BitConverter.GetBytes(func.Value.Item2.Length));
-                    ms.Write(func.Value.Item2);
+                    //写入外部符号表
+                    ms.Write(BitConverter.GetBytes((ushort)func.Value.outsizeSymbolsId.Length));
+                    foreach(var outSymId in func.Value.outsizeSymbolsId)
+                    {
+                        ms.Write(BitConverter.GetBytes(outSymId));
+                    }
+                    //写入字节码
+                    ms.Write(BitConverter.GetBytes(func.Value.bytecode.Length));
+                    ms.Write(func.Value.bytecode);
                 }
                 return ms.ToArray();
             }
@@ -386,6 +431,21 @@ namespace ScriptRuntime.Core
             var time = (DateTime.UtcNow.Ticks % 100000000).ToString("X8"); // 8位十六进制
             var random = new Random().Next(1000, 9999); // 4位随机数
             return $"{time}{random}";
+        }
+
+        ushort GetOrCreateConstStringId(string str)
+        {
+            ushort index = 0; //字符串常量池索引
+            if (!ConstString.Contains(str))
+            {
+                ConstString.Add(str);
+                index = (ushort)(ConstString.Count - 1);
+            }
+            else
+            {
+                index = (ushort)ConstString.IndexOf(str);
+            }
+            return index;
         }
         void Emit(OpCode opcode, object param = null, object param2 = null)
         {
@@ -476,7 +536,7 @@ namespace ScriptRuntime.Core
             sb.AppendLine();
         }
 
-        public Dictionary<string, ValueTuple<string[], byte[], List<(uint offset, uint line)>, string>> FullCompile(ASTNode ast)
+        public Dictionary<string, FunctionInfo> FullCompile(ASTNode ast)
         {
             functions.Clear();
             ASTNode mainEntry = new ASTNode(ASTNode.ASTNodeType.FunctionDefinition, "main_entry", ast.line);
@@ -613,10 +673,13 @@ namespace ScriptRuntime.Core
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.FunctionDefinition)
             {
+
                 var funcName = ast.Raw == string.Empty ? "anon" + GenerateName() : ast.Raw;
+                GetOrCreateConstStringId(funcName); //给函数名创建常量池id
                 string[] args = new string[ast.Childrens.Count - 1];
                 for (int i = 0; i < ast.Childrens.Count - 1; i++)
                 {
+                    GetOrCreateConstStringId(ast.Childrens[i].Raw); //给参数创建常量池id
                     args[i] = ast.Childrens[i].Raw;
                 }
                 //和其他方法仅共享常量池不共享offset记录
@@ -646,14 +709,30 @@ namespace ScriptRuntime.Core
                     offsetMapper[i] = (temp, offsetMapper[i].line);
                 }
 
+                //计算外部符号依赖
+                var outsideSymbol = OutsideSymbolDetector.DetectOutletSymbol(ast);
+                List<ushort> outsizeSymIds = new List<ushort>();
+                foreach(var sym in outsideSymbol)
+                {
+                    outsizeSymIds.Add(GetOrCreateConstStringId(sym));
+                }
 
-                functions.Add(funcName, (args, comp.ms.ToArray(),offsetMapper, comp.sb.ToString()));
+                functions.Add(funcName, new FunctionInfo(funcName, args, offsetMapper, comp.ms.ToArray(),outsizeSymIds.ToArray() , comp.sb.ToString()));
+                //functions.Add(funcName, (args, comp.ms.ToArray(),offsetMapper, comp.sb.ToString()));
 
                 if (ast.Raw == string.Empty) //如果是匿名函数，压入栈作为值传递
                 {
                     Emit(OpCode.PUSH_STR, funcName);
                     Emit(OpCode.LOAD_VAR);
                 }
+                else
+                {
+                    //普通函数在当前这里生成一个let <Name> = <Name>形成闭包
+                    Emit(OpCode.PUSH_STR, funcName);
+                    Emit(OpCode.LOAD_VAR);
+                    Emit(OpCode.STORE_LOCAL,funcName);
+                }
+
                 requireForEachChildren = false;
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.CallFunction)
