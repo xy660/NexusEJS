@@ -59,6 +59,8 @@ NexusEJS支持闭包，闭包将在以下情况触发：
 
 **请合理使用闭包，避免造成不必要内存占用，闭包仅会在lambda表达式或函数引用作用域外变量才会触发**
 
+**闭包是按值捕获，number和boolean类型是拷贝，修改不会影响原变量**
+
 示例：
 
 ```javascript
@@ -149,6 +151,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
