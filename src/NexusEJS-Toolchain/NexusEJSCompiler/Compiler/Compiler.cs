@@ -6,9 +6,21 @@ using System.Text;
 using System.Threading.Tasks;
 using nejsc.Utils;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection;
 
 namespace ScriptRuntime.Core
 {
+
+    public class CompileException : Exception
+    {
+        public uint line;
+        public string message;
+        public CompileException(uint line, string message) : base($"{message} line:{line}") 
+        {
+            this.line = line;
+            this.message = message;
+        }
+    }
 
     //地址都是相对地址
 
@@ -34,7 +46,7 @@ namespace ScriptRuntime.Core
 
     class Compiler
     {
-        public static ushort Version = 1;
+        public static ushort Version = 2;
         enum OpCode
         {
             //运算符
@@ -102,7 +114,7 @@ namespace ScriptRuntime.Core
             STORE, //从栈弹出两个VariableValue，先后a，b，将a的VariableValue内的引用/值修改为b的值
             STORE_LOCAL,
             DEF_LOCAL, //弹出一个字符串，从局部符号表创建一个变量占位，默认值为NULL
-            DEF_GLOBAL, //弹出一个字符串，从全局符号表创建一个变量占位，默认值为NULL
+            LOAD_LOCAL, //从本地索引表加载一个变量
             DEL_DEF, //从栈弹出一个VariableValue，从全局符号表删除给定名称的值
             LOAD_VAR,  //从栈弹出一个字符串，从全局/局部符号表寻找变量将值压入栈
             GET_FIELD, //获取对象属性值，一个桥接VariableValue(type=BRIDGE)指向成员VariableValue的指针
@@ -222,8 +234,8 @@ namespace ScriptRuntime.Core
     // 变量管理
     { OpCode.STORE, -1 }, //弹出两个，将被赋值的VariableValue栈值压回去
     { OpCode.STORE_LOCAL, 0 }, //弹出一个，压入一个
-    { OpCode.DEF_LOCAL, -1 },
-    { OpCode.DEF_GLOBAL, -1 },
+    { OpCode.DEF_LOCAL, 0 },
+    { OpCode.LOAD_LOCAL, 1 },
     { OpCode.DEL_DEF, -1 },
     { OpCode.LOAD_VAR, 0 },  // 弹出变量名，从全局符号表寻找，压入变量值
     {OpCode.NEW_ARR,1 },
@@ -281,8 +293,8 @@ namespace ScriptRuntime.Core
     { OpCode.CALLFUNC, 2 },      // 1字节头 + 1字节参数数量
     { OpCode.STORE, 1 },
     { OpCode.STORE_LOCAL, 3 },  //1字节头 + 2字节索引
-    { OpCode.DEF_LOCAL, 1 },
-    { OpCode.DEF_GLOBAL, 1 },
+    { OpCode.DEF_LOCAL, 3 },
+    { OpCode.LOAD_LOCAL, 3 }, //1字节头+2字节索引
     { OpCode.DEL_DEF, 1 },
     { OpCode.LOAD_VAR, 1 },
     { OpCode.GET_FIELD,1 },
@@ -355,6 +367,8 @@ namespace ScriptRuntime.Core
 
         public List<string> ConstString = new List<string>();
 
+        public List<string> LocalVariableDefines = new List<string>();
+
         //编译出来的方法体
         public static Dictionary<string, FunctionInfo> functions = new();
 
@@ -363,11 +377,32 @@ namespace ScriptRuntime.Core
             OffsetLineMapper = new List<(uint offset, uint line)>();
         }
 
-        public Compiler(List<string> conststr, List<(uint offset, uint line)> offsetLineMapper, uint baseOffset)
+        public class CompilationContext
         {
-            OffsetLineMapper = offsetLineMapper;
-            ConstString = conststr;
-            this.baseOffset = baseOffset;
+            public List<string> ConstStr { get; set; }
+            public List<string> LocalVars { get; set; }
+            public List<(uint Offset, uint Line)> OffsetLineMapper { get; set; }
+            public uint BaseOffset { get; set; }
+
+            public CompilationContext(
+                List<string> conststr,
+                List<string> localVars,
+                List<(uint offset, uint line)> offsetLineMapper,
+                uint baseOffset)
+            {
+                ConstStr = conststr;
+                LocalVars = localVars;
+                OffsetLineMapper = offsetLineMapper;
+                BaseOffset = baseOffset;
+            }
+        }
+
+        public Compiler(CompilationContext context)
+        {
+            OffsetLineMapper = context.OffsetLineMapper;
+            ConstString = context.ConstStr;
+            LocalVariableDefines = context.LocalVars;
+            baseOffset = context.BaseOffset;
         }
 
         //将字节码数据链接成一个可执行包
@@ -488,7 +523,16 @@ namespace ScriptRuntime.Core
                     ms.Write(BitConverter.GetBytes(((string)param).Length));
                     ms.Write(Encoding.Unicode.GetBytes((string)param));
                     break;
+                case OpCode.LOAD_LOCAL:
+                    {
+                        ushort var_id = (ushort)(int)param;
+                        ms.WriteByte((byte)(int)opcode);
+                        ms.Write(BitConverter.GetBytes(var_id));
+                        sb.Append($"[vid={var_id}]");
+                        break;
+                    }
                 case OpCode.STORE_LOCAL:
+                case OpCode.DEF_LOCAL:
                 case OpCode.PUSH_STR:
                     {
                         ushort index = 0; //字符串常量池索引
@@ -503,7 +547,7 @@ namespace ScriptRuntime.Core
                         }
                         ms.WriteByte((byte)(int)opcode);
                         ms.Write(BitConverter.GetBytes(index));
-                        sb.Append($"[{index}]");
+                        sb.Append($"[sid={index}]");
                     }
                     break;
                 case OpCode.PUSH_BOOL:
@@ -572,9 +616,9 @@ namespace ScriptRuntime.Core
                 //隔离编译
 
                 var trueBlockOffset = baseOffset + ms.Position + instructionSize[OpCode.JMP_IF_FALSE];
-                var (compTrue, asmTrue) = new Compiler(ConstString,OffsetLineMapper,(uint)trueBlockOffset).Compile(trueBlock);
+                var (compTrue, asmTrue) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)trueBlockOffset)).Compile(trueBlock);
                 var falseBlockOffset = (uint)(trueBlockOffset + compTrue.Length + instructionSize[OpCode.JMP]);
-                (byte[]? compFalse, string? asmFalse) = falseBlock == null ? (null, null) : new Compiler(ConstString,OffsetLineMapper,falseBlockOffset).Compile(falseBlock);
+                (byte[]? compFalse, string? asmFalse) = falseBlock == null ? (null, null) : new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, falseBlockOffset)).Compile(falseBlock);
 
                 //如果有else块在true块后面就有一个跳过指令
                 //这个跳过指令包含1字节头+8字节地址=9字节，需要考虑
@@ -624,9 +668,9 @@ namespace ScriptRuntime.Core
                 var block = ast.Childrens[1];
 
                 var coditionOffset = (uint)(baseOffset + ms.Position + instructionSize[OpCode.SCOPE_PUSH]);
-                var (coditionCode, coditionAsm) = new Compiler(ConstString,OffsetLineMapper,coditionOffset) { scopeCommand = false }.Compile(codition);
+                var (coditionCode, coditionAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, coditionOffset)) { scopeCommand = false }.Compile(codition);
                 var blockCodeOffset = (uint)(coditionOffset + coditionCode.Length + instructionSize[OpCode.JMP_IF_FALSE]);
-                var (blockCode, blockAsm) = new Compiler(ConstString, OffsetLineMapper,blockCodeOffset) { scopeCommand = false }.Compile(block);
+                var (blockCode, blockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines ,OffsetLineMapper, blockCodeOffset)) { scopeCommand = false }.Compile(block);
 
                 //进入作用域
                 Emit(OpCode.SCOPE_PUSH,
@@ -682,32 +726,15 @@ namespace ScriptRuntime.Core
                     GetOrCreateConstStringId(ast.Childrens[i].Raw); //给参数创建常量池id
                     args[i] = ast.Childrens[i].Raw;
                 }
-                //和其他方法仅共享常量池不共享offset记录
-                var comp = new Compiler(ConstString,new List<(uint offset, uint line)>(),0);
+                //和其他方法仅共享常量池不共享offset记录和局部变量
+                List<string> functionVariables = new List<string>();
+                functionVariables.AddRange(args);
+                var comp = new Compiler(new CompilationContext(ConstString,functionVariables, new List<(uint offset, uint line)>(), 0));
                 var (byteCode, asm) = comp.Compile(ast.Childrens.Last());
                 var InnerConstString = comp.ConstString;
 
                 List<(uint offset, uint line)> offsetMapper = comp.OffsetLineMapper;
 
-                comp = new Compiler(ConstString, new List<(uint offset, uint line)>(), 0);
-                for (int i = 0; i < InnerConstString.Count; i++)
-                {
-                    //改用程序包为单位的常量池，不放置此指令
-                    //comp.Emit(OpCode.CONST_STR, InnerConstString[i]);
-                }
-                uint constStringPoolLength = (uint)comp.ms.Length;
-
-                //写入字节码
-                comp.ms.Write(byteCode);
-                comp.sb.Append(asm);
-
-                //**需要将单独编译的AST产生的行号Mapper的offset部分与常量池大小进行相加**
-                
-                for(int i = 0;i < offsetMapper.Count; i++)
-                {
-                    uint temp = offsetMapper[i].offset + constStringPoolLength;
-                    offsetMapper[i] = (temp, offsetMapper[i].line);
-                }
 
                 //计算外部符号依赖
                 var outsideSymbol = OutsideSymbolDetector.DetectOutletSymbol(ast);
@@ -717,7 +744,7 @@ namespace ScriptRuntime.Core
                     outsizeSymIds.Add(GetOrCreateConstStringId(sym));
                 }
 
-                functions.Add(funcName, new FunctionInfo(funcName, args, offsetMapper, comp.ms.ToArray(),outsizeSymIds.ToArray() , comp.sb.ToString()));
+                functions.Add(funcName, new FunctionInfo(funcName, args, offsetMapper, byteCode,outsizeSymIds.ToArray() , asm));
                 //functions.Add(funcName, (args, comp.ms.ToArray(),offsetMapper, comp.sb.ToString()));
 
                 if (ast.Raw == string.Empty) //如果是匿名函数，压入栈作为值传递
@@ -731,6 +758,11 @@ namespace ScriptRuntime.Core
                     Emit(OpCode.PUSH_STR, funcName);
                     Emit(OpCode.LOAD_VAR);
                     Emit(OpCode.STORE_LOCAL,funcName);
+                    if (LocalVariableDefines.Contains(funcName))
+                    {
+                        throw new CompileException(ast.line, $"\"{funcName}\" has already been declared");
+                    }
+                    LocalVariableDefines.Add(funcName);
                 }
 
                 requireForEachChildren = false;
@@ -878,9 +910,9 @@ namespace ScriptRuntime.Core
 
                 //[TRY_ENTER(TRYBLOCK.length + JMP.length)][TRYBLOCK][JMP(CATCH.length + [加载指令].length)][(加载指令)][CATCH];
                 uint tryBlockOffset = (uint)(baseOffset + ms.Position + instructionSize[OpCode.TRY_ENTER]);
-                var (tryBlock, tryBlockAsm) = new Compiler(ConstString, OffsetLineMapper,tryBlockOffset).Compile(ast.Childrens[0]);
+                var (tryBlock, tryBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, tryBlockOffset)).Compile(ast.Childrens[0]);
                 uint catchBlockOffset = (uint)(tryBlockOffset + tryBlock.Length + instructionSize[OpCode.JMP] + catchVarImplSize);
-                var (catchBlock, catchBlockAsm) = new Compiler(ConstString,OffsetLineMapper,catchBlockOffset).Compile(ast.Childrens[2]);
+                var (catchBlock, catchBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, catchBlockOffset)).Compile(ast.Childrens[2]);
                 //标记try块大小，最后那个JMP指令也算在try块
                 Emit(OpCode.TRY_ENTER, tryBlock.Length + instructionSize[OpCode.JMP]);
                 ms.Write(tryBlock);
@@ -893,6 +925,11 @@ namespace ScriptRuntime.Core
                 //创建新的作用域执行catch，大小：catch块+catch序言-SCOPE_PUSH指令大小
                 Emit(OpCode.SCOPE_PUSH, catchBlock.Length + catchVarImplSize - instructionSize[OpCode.SCOPE_PUSH]);
                 Emit(OpCode.STORE_LOCAL, ast.Childrens[1].Raw); //直接存入
+                if (LocalVariableDefines.Contains(ast.Childrens[1].Raw))
+                {
+                    throw new CompileException(ast.line, $"\"{ast.Childrens[1].Raw}\" has already been declared");
+                }
+                LocalVariableDefines.Add(ast.Childrens[1].Raw);
                 Emit(OpCode.POP); //弹出剩下的异常对象
                 ms.Write(catchBlock);
                 sb.AppendLine(catchBlockAsm);
@@ -968,13 +1005,15 @@ namespace ScriptRuntime.Core
             {
                 //基偏移加上作用域指令
                 if (scopeCommand) baseOffset += (uint)instructionSize[OpCode.SCOPE_PUSH];
-                
-                var blockBytecode = new Compiler(ConstString, OffsetLineMapper,(uint)baseOffset); //这个compiler用来存储并进行最终局部变量清理
 
+                //记录当前的局部变量栈位置
+                int enterPosition = LocalVariableDefines.Count;
+
+                var blockBytecode = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)baseOffset)); //这个compiler用来存储并进行最终局部变量清理
                 foreach (var expr in ast.Childrens)
                 {
                     //单独编译每一条语句，对语句进行栈平衡
-                    var (bytecode, asm) = new Compiler(ConstString, OffsetLineMapper,(uint)(baseOffset + blockBytecode.ms.Length)).Compile(expr);
+                    var (bytecode, asm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)(baseOffset + blockBytecode.ms.Length))).Compile(expr);
                     int effect = CalculateStackNetEffect(bytecode);
                     blockBytecode.ms.Write(bytecode); //存入最终筛选
                     blockBytecode.sb.AppendLine(asm);
@@ -989,6 +1028,9 @@ namespace ScriptRuntime.Core
                 if (scopeCommand) Emit(OpCode.SCOPE_PUSH, (int)blockBytecode.ms.Length); //进入作用域
                 ms.Write(blockBytecode.ms.ToArray());
                 sb.AppendLine(blockBytecode.sb.ToString());
+
+                //清理内层变量
+                LocalVariableDefines.RemoveRange(enterPosition, LocalVariableDefines.Count - enterPosition);
 
                 requireForEachChildren = false;
             }
@@ -1019,13 +1061,15 @@ namespace ScriptRuntime.Core
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.VariableDefination) //local变量创建
             {
-                Emit(OpCode.PUSH_STR, ast.Raw);
-                Emit(OpCode.DEF_LOCAL);
-            }
-            else if (ast.NodeType == ASTNode.ASTNodeType.GlobalVariableDefination)
-            {
-                Emit(OpCode.PUSH_STR, ast.Raw);
-                Emit(OpCode.DEF_GLOBAL);
+                //Emit(OpCode.PUSH_STR, ast.Raw);
+                Emit(OpCode.DEF_LOCAL,ast.Raw);
+
+                if (LocalVariableDefines.Contains(ast.Raw))
+                {
+                    throw new CompileException(ast.line, $"\"{ast.Raw}\" has already been declared");
+                }
+
+                LocalVariableDefines.Add(ast.Raw); //新增局部变量
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.Identifier)
             {
@@ -1035,8 +1079,17 @@ namespace ScriptRuntime.Core
                 }
                 else
                 {
-                    Emit(OpCode.PUSH_STR, ast.Raw);
-                    Emit(OpCode.LOAD_VAR);
+                    //判断是否为局部变量，局部变量走快速通道
+                    if (LocalVariableDefines.Contains(ast.Raw))
+                    {
+                        GetOrCreateConstStringId(ast.Raw);
+                        Emit(OpCode.LOAD_LOCAL, LocalVariableDefines.IndexOf(ast.Raw));
+                    }
+                    else
+                    {
+                        Emit(OpCode.PUSH_STR, ast.Raw);
+                        Emit(OpCode.LOAD_VAR);
+                    }
                 }
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.ReturnStatement)
