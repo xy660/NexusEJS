@@ -57,6 +57,8 @@ NexusEJS supports closures, which are triggered in the following cases:
 
 **Use closures judiciously to avoid unnecessary memory consumption. Closures are only triggered when a lambda expression or function references variables outside its scope.**
 
+**Closures capture by value. Number and boolean types are copied, and modifications do not affect the original variables.**
+
 Example:
 
 ```javascript
