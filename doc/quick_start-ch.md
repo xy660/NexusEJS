@@ -67,8 +67,10 @@ NexusEJS支持闭包，闭包将在以下情况触发：
 
 function getCounter(){
     let cnt = 0;
+    let obj = {value:0};
     return ()=>{
-        cnt++; 
+        cnt++;
+        obj.value++;
     }
 }
 
@@ -151,6 +153,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
