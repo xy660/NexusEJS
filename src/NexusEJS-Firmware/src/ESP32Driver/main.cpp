@@ -88,6 +88,10 @@ void setup()
     entry.readBytes((char*)entryNejs,entry.size());
 
     uint16_t packageId = vm.LoadPackedProgram(entryNejs,entry.size());
+    if(packageId == 0){
+        Serial.println("fail to load the NEJS package");
+        return;
+    }
     Serial.println("loading success! calling entry..");
 
     std::wstring name = L"main_entry";

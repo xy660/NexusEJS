@@ -56,13 +56,15 @@ void* TaskEntry(void* param) {
 
 	auto& context = taskParam.VMInstance->tasks[taskParam.taskId];
 	context.status = TaskContext::RUNNING;
-	std::unordered_map<std::wstring, VariableValue> paramList;
-	paramList[context.sfn->arguments[0]] = taskParam.arg; //拷贝第一个也是唯一一个参数
+	//std::unordered_map<std::wstring, VariableValue> paramList;
+	//paramList[context.sfn->arguments[0]] = taskParam.arg; //拷贝第一个也是唯一一个参数
+	std::vector<VariableValue> paramList;
+	paramList.push_back(taskParam.arg);
 
 	platform.MutexUnlock(taskParam.VMInstance->globalSymbolLock);
 
 	context.worker->currentWorkerId = taskParam.taskId;
-	auto res = context.worker->Init(*context.sfn,&paramList);
+	auto res = context.worker->Init(*context.sfn,paramList);
 
 	platform.MutexLock(taskParam.VMInstance->globalSymbolLock); 
 

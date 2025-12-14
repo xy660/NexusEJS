@@ -257,6 +257,20 @@ void GC::Internal_GC_Collect() {
 					dfsStack.push(variable_ref.content.ref);
 				}
 			}
+			//扫描局部变量
+			for (auto& local_var : fnFrame.localVariables) {
+				if (local_var.varType == ValueType::REF) {
+					dfsStack.push(local_var.content.ref);
+				}
+			}
+			//扫描局部环境符号表
+			for (auto& env_pair : fnFrame.functionEnvSymbols) {
+				if (env_pair.second.varType == ValueType::REF) {
+					dfsStack.push(env_pair.second.content.ref);
+				}
+			}
+
+			/*
 			for (auto& scope : fnFrame.scopeStack) {
 				for (auto& varb : scope.scopeVariables) {
 					VariableValue* current = varb.second.getRawVariable();
@@ -265,6 +279,7 @@ void GC::Internal_GC_Collect() {
 					}
 				}
 			}
+			*/
 		}
 	}
 
@@ -408,7 +423,8 @@ VariableValue GC::InvokeBytecodeFinalizeFunc(ByteCodeFunction& func,VMObject*thi
 	defaultScope.byteCodeStart = 0;
 	defaultScope.ep = 0;
 	defaultScope.spStart = 0;
-	defaultScope.scopeVariables[L"this"] = CreateReferenceVariable(thisValue);
+	defaultScope.localvarStart = 0;
+	frame.functionEnvSymbols[L"this"] = CreateReferenceVariable(thisValue);
 	frame.scopeStack.push_back(defaultScope);
 	worker.getCallingLink().push_back(frame);
 	return worker.VMWorkerTask();

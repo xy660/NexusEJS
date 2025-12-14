@@ -26,8 +26,8 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 	memcpy(&version, data + pos, sizeof(uint16_t));
 	pos += sizeof(uint16_t);
 
-	if (version > VM_VERSION_NUMBER) {
-		return 0; //不兼容版本
+	if (version != VM_VERSION_NUMBER) {
+		return 0; //不兼容当前版本
 	}
 
 	uint16_t packageNameLnegth = 0;
@@ -73,16 +73,16 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 
 		uint8_t argumentCount = *(data + pos); //本身1字节不需要拷贝
 		pos += sizeof(uint8_t);
-		std::vector<std::wstring> arguments;
+		std::vector<uint16_t> arguments;
 		for (int i = 0; i < argumentCount; i++) {
 			//读取参数
 			uint16_t argumentNameStrId;
 			memcpy(&argumentNameStrId, data + pos, sizeof(uint16_t));
 			pos += sizeof(uint16_t);
 
-			std::wstring& argumentName = ConstStringPool[argumentNameStrId]->implement.stringImpl;
+			//std::wstring& argumentName = ConstStringPool[argumentNameStrId]->implement.stringImpl;
 
-			arguments.push_back(argumentName);
+			arguments.push_back(argumentNameStrId);
 		}
 
 		//读取外部符号依赖
@@ -193,7 +193,8 @@ VariableValue VM::InitAndCallEntry(std::wstring& name,uint16_t id) {
 	//context.
 
 	platform.MutexUnlock(this->globalSymbolLock);
-	return worker->Init(entry);
+	std::vector<VariableValue> args; //main函数无参数
+	return worker->Init(entry,args);
 
 }
 
@@ -218,21 +219,18 @@ VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableVa
 		return VariableValue();
 	}
 	//赋值下参数
-	std::unordered_map<std::wstring, VariableValue> argumentMap;
-	for (int i = 0; i < args.size(); i++) {
-		argumentMap[code->funcImpl.local_func.arguments[i]] = args[i];
-	}
+	std::unordered_map<std::wstring, VariableValue> env;
 
 	//如果是对象的那种函数他是带闭包的，需要设置一下闭包环境(前提closure不为NULL)
 	if (function.varType == ValueType::REF && 
 		function.content.ref->implement.closFuncImpl.closure) {
-		argumentMap[L"_clos"] = CreateReferenceVariable(
+		env[L"_clos"] = CreateReferenceVariable(
 			function.content.ref->implement.closFuncImpl.closure);
 	}
 
 	//可选this指针
 	if (thisValue) {
-		argumentMap[L"this"] = CreateReferenceVariable(thisValue);
+		env[L"this"] = CreateReferenceVariable(thisValue);
 	}
 
 	VMWorker* worker = new VMWorker(this); //创建临时Worker
@@ -242,5 +240,5 @@ VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableVa
 	platform.MutexUnlock(this->globalSymbolLock);
 
 
-	return worker->Init(code->funcImpl.local_func, &argumentMap);
+	return worker->Init(code->funcImpl.local_func,args, &env);
 }

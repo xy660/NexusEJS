@@ -43,8 +43,8 @@ uint8_t OpCode::instructionSize[] = {
     1,  // NEW_ARR
     1,  // STORE
     3,  // STORE_LOCAL
-    1,  // DEF_LOCAL
-    1,  // DEF_GLOBAL
+    3,  // DEF_LOCAL
+    3,  // LOAD_LOCAL
     1,  // DEL_DEF
     1,  // LOAD_VAR
     1,  // GET_FIELD

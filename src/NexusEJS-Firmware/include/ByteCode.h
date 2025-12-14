@@ -14,7 +14,7 @@ class ByteCodeFunction
 public:
     uint8_t* byteCode; 
 	uint32_t byteCodeLength; //字节码长度
-    std::vector<std::wstring> arguments;
+    std::vector<uint16_t> arguments;
     std::vector<uint16_t> outsideSymbols; //存储外部符号依赖
     uint32_t packageId; 
     std::wstring funcName;
@@ -102,7 +102,7 @@ public:
         STORE, //从栈弹出两个VariableValue，先后a，b，将a的VariableValue内的引用/值修改为b的值
         STORE_LOCAL, //自带变量名索引，直接存入局部变量，带有一个2字节操作数表示字符串常量池索引
         DEF_LOCAL, //弹出一个字符串，从局部符号表创建一个变量占位，默认值为NULL
-        DEF_GLOBAL, //弹出一个字符串，从全局符号表创建一个变量占位，默认值为NULL
+        LOAD_LOCAL, //弹出一个字符串，从全局符号表创建一个变量占位，默认值为NULL
         DEL_DEF, //从栈弹出一个VariableValue，从全局符号表删除给定名称的值
         LOAD_VAR,  //从栈弹出一个字符串，从全局/局部符号表寻找变量将值压入栈
         GET_FIELD, //获取对象属性值，一个桥接VariableValue(type=BRIDGE)指向成员VariableValue的指针

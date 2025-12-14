@@ -5,7 +5,9 @@
 #include "ByteCode.h"
 #include "VariableValue.h"
 
-#define VM_VERSION_NUMBER 1
+#define VM_VERSION_NUMBER 2
+
+#define VM_VERSION_STR L"V1.1.0"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
@@ -25,10 +27,13 @@ public:
 	
 	VariableValue returnValue;
 	std::vector<VariableValue> virtualStack;
+	std::vector<VariableValue> localVariables; //栈帧变量表
+	std::vector<uint16_t> localVarNames; //名称映射
 	std::vector<ScopeFrame> scopeStack; //作用域链
-	//std::vector<VMObject> constStringPool; //常量字符串池
+	std::unordered_map<std::wstring, VariableValue> functionEnvSymbols; //函数环境符号表
+	//std::unordered_map<uint16_t, uint16_t> variableNameMapper; //<str_id,var_id>映射表
 
-	//VariableValue& VirtualStackPop();
+
 	FuncFrame() {
 		//初始化默认值
 		returnValue.varType = ValueType::NULLREF;
@@ -41,7 +46,8 @@ public:
 	int byteCodeStart = 0;
 	int byteCodeLength = 0; //字节码范围长度
 	int ep = 0; //作用域相对执行指针
-	int spStart = 0; //进入作用域时栈的size，便于恢复
+	uint16_t spStart = 0; //进入作用域时栈的size，便于恢复
+	uint16_t localvarStart = 0; //进入作用域时的变量栈索引size
 	
 	int exceptionHandlerEIP = 0; //异常处理程序在当前作用域的相对地址
 
@@ -60,7 +66,7 @@ public:
 	
 
 	//作用域内的变量
-	std::unordered_map<std::wstring, VariableValue> scopeVariables;
+	//std::unordered_map<std::wstring, VariableValue> scopeVariables;
 	
 };
 
@@ -76,7 +82,7 @@ public:
 
 	uint32_t currentWorkerId; //当前工作id
 
-	VariableValue Init(ByteCodeFunction& entry_func, std::unordered_map <std::wstring, VariableValue>* args = NULL);
+	VariableValue Init(ByteCodeFunction& entry_func, std::vector<VariableValue>& args, std::unordered_map <std::wstring, VariableValue>* env = NULL);
 
 	void ThrowError(std::wstring messageString);
 

@@ -161,7 +161,11 @@ std::wstring VMObject::ToString(uint16_t depth) {
     }
     case ValueType::FUNCTION:
     {
-        return L"<clos_fn>" + this->implement.closFuncImpl.closure->ToString();
+        auto ret = L"<clos_fn>";
+        if (this->implement.closFuncImpl.propObject) {
+            return ret + this->implement.closFuncImpl.propObject->ToString(depth);
+        }
+        return ret;
     }
     case ValueType::PTR: //值类型不会出现在这里
         break;
@@ -194,11 +198,13 @@ VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObj
         defaultScope.ep = 0;
         defaultScope.spStart = 0;
         //向新的栈帧的第一个作用域帧填充参数
-        int i = 0;
-        for (auto& paramName : funcInfo.arguments) {
-            defaultScope.scopeVariables[paramName] = args[i];
-            i++;
+        uint32_t index = 0;
+        for (auto& arg : args) {
+            frame.localVariables.push_back(arg);
+            frame.localVarNames.push_back(funcInfo.arguments[index]);
+            index++;
         }
+
         VariableValue thisValueRef;
         if (thisValue) { //如果thisValue是NULL就转换一下，避免REF类型访问空指针
             thisValueRef.varType = ValueType::REF;
@@ -207,10 +213,10 @@ VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObj
         else {
             thisValueRef.varType = ValueType::NULLREF;
         }
-        defaultScope.scopeVariables[L"this"] = thisValueRef;
+        frame.functionEnvSymbols[L"this"] = thisValueRef;
 
         if (closure) {
-            defaultScope.scopeVariables[L"_clos"] = CreateReferenceVariable(closure);
+            frame.functionEnvSymbols[L"_clos"] = CreateReferenceVariable(closure);
         }
 
         frame.scopeStack.push_back(defaultScope);

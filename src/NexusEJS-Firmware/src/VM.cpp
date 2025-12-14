@@ -17,6 +17,7 @@
 #include "StringConverter.h"
 #include "StringManager.h"
 
+
 #pragma region BINARY_OP_TEMPLATE
 
 /*
@@ -134,7 +135,7 @@ const char* IOpCodeStr[] = {
 	"STORE", //从栈弹出两个VariableValue，先后a，b，将a的VariableValue内的引用/值修改为b的值
 	"STORE_LOCAL", //自带变量名索引，直接存入局部变量，带有一个2字节操作数表示字符串常量池索引
 	"DEF_LOCAL", //弹出一个字符串，从局部符号表创建一个变量占位，默认值为NULL
-	"DEF_GLOBAL", //弹出一个字符串，从全局符号表创建一个变量占位，默认值为NULL
+	"LOAD_LOCAL",
 	"DEL_DEF", //从栈弹出一个VariableValue，从全局符号表删除给定名称的值
 	"LOAD_VAR",  //从栈弹出一个字符串，从全局/局部符号表寻找变量将值压入栈
 	"GET_FIELD", //获取对象属性值，一个桥接VariableValue(type=BRIDGE)指向成员VariableValue的指针
@@ -164,7 +165,7 @@ VMWorker::VMWorker(VM* current_vm) {
 }
 
 //初始化操作，加载方法字节码帧并启动解释器循环
-VariableValue VMWorker::Init(ByteCodeFunction& entry_func, std::unordered_map <std::wstring, VariableValue>* args) {
+VariableValue VMWorker::Init(ByteCodeFunction& entry_func,std::vector<VariableValue>& args, std::unordered_map<std::wstring, VariableValue>* env) {
 	FuncFrame frame;
 	frame.byteCode = entry_func.byteCode;
 	frame.byteCodeLength = entry_func.byteCodeLength;
@@ -175,10 +176,15 @@ VariableValue VMWorker::Init(ByteCodeFunction& entry_func, std::unordered_map <s
 	defaultScope.byteCodeStart = 0;
 	defaultScope.ep = 0;
 	defaultScope.spStart = 0;
-	if (args) {
-		for (auto& arg : *args) {
-			defaultScope.scopeVariables[arg.first] = arg.second;
-		}
+	defaultScope.localvarStart = 0;
+	if (env) {
+		frame.functionEnvSymbols = *env; //拷贝环境哈希表到函数帧
+	}
+	uint32_t index = 0;
+	for (auto& arg : args) {
+		frame.localVariables.push_back(arg); //加入参数
+		frame.localVarNames.push_back(entry_func.arguments[index]);
+		index++;
 	}
 	frame.scopeStack.push_back(defaultScope);
 	callFrames.push_back(frame);
@@ -205,11 +211,19 @@ void VMWorker::ThrowError(VariableValue& messageString)
 	printf("Exception has thrown!");
 	printf("Command: %s\r\n", IOpCodeStr[currentFn.byteCode[currentScope.byteCodeStart + currentScope.ep]]);
 	printf("EIP: %d\r\n", currentScope.byteCodeStart + currentScope.ep);
+	printf("===Environment===\r\n");
+	for (auto& env_pair : currentFn.functionEnvSymbols) {
+		printf("[%s]%s\n", wstring_to_string(env_pair.first).c_str(), wstring_to_string(env_pair.second.ToString()).c_str());
+	}
 	printf("===Variables===\r\n");
-	for (auto& scope : currentFn.scopeStack) {
-		for (auto& varb : scope.scopeVariables) {
-			printf("[%s]%s\n", wstring_to_string(varb.first).c_str(), wstring_to_string(varb.second.ToString()).c_str());
-		}
+	for (int i = 0; i < currentFn.localVariables.size(); i++) {
+
+		uint16_t packageId = currentFn.functionInfo->packageId;
+		auto& package = VMInstance->loadedPackages[packageId];
+		auto& name = package.ConstStringPool[currentFn.localVarNames[i]]->implement.stringImpl;
+		auto& varValue = currentFn.localVariables[i];
+
+		printf("[%s]%s\n", wstring_to_string(name).c_str(), wstring_to_string(varValue.ToString()).c_str());
 	}
 	printf("===Stack===\r\n");
 	int stki = 0;
@@ -266,6 +280,8 @@ void VMWorker::ThrowError(VariableValue& messageString)
 			if (scopeFrame.CheckControlFlowType(ScopeFrame::TRYCATCH) &&
 				scopeFrame.exceptionHandlerEIP > scopeFrame.ep) { //判断一下当前的try块是否还有效
 				fnFrame.virtualStack.resize(scopeFrame.spStart);
+				fnFrame.localVariables.resize(scopeFrame.localvarStart);
+				fnFrame.localVarNames.resize(scopeFrame.localvarStart);
 				fnFrame.scopeStack.resize(j + 1);
 				callFrames.resize(i + 1); //清理掉多余的栈帧及其存储的局部变量
 				fnFrame = callFrames[i];
@@ -312,17 +328,34 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 
 	std::unordered_map<std::wstring, VariableValue> closureContainer;
 	
-	//自底向上查找，这样获取到的同名变量就是最靠近当前作用域的
-	for (auto& scope : frame->scopeStack) {
-		for (auto& varb : scope.scopeVariables) {
-			//计算交集进行捕获
-			for (auto symid : outsideSym) {
-				if (package.ConstStringPool[symid]->implement.stringImpl == varb.first) {
-					closureContainer[varb.first] = varb.second;
+	//查找哪些局部变量需要被捕获
+	uint32_t index = 0;
+	for (auto& varbNameId : frame->localVarNames) {
+		//计算交集进行捕获
+		for (auto symid : outsideSym) {
+			if (symid == varbNameId) {
+				std::wstring& varName = package.ConstStringPool[varbNameId]->implement.stringImpl;
+				closureContainer[varName] = frame->localVariables[index];
+			}
+		}
+
+		index++;
+	}
+
+	//查找父层闭包有没有需要被捕获的，进行闭包继承
+	auto clos_find = frame->functionEnvSymbols.find(L"_clos");
+	if (clos_find != frame->functionEnvSymbols.end()) {
+		if ((*clos_find).second.getContentType() == ValueType::OBJECT) {
+			for (auto& closVarb : (*clos_find).second.content.ref->implement.objectImpl) {
+				for (auto symid : outsideSym) {
+					if (package.ConstStringPool[symid]->implement.stringImpl == closVarb.first) {
+						closureContainer[closVarb.first] = closVarb.second;
+					}
 				}
 			}
 		}
 	}
+
 
 	/*
 	//零捕获优化：不创建闭包，直接返回原始函数
@@ -344,11 +377,15 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 }
 
 static VariableValue* __vmworker_find_variable(VMWorker& worker, std::wstring& name) {
-	//从调用栈最顶上的方法的最顶上作用域帧开始向下查找
 	auto& callingStack = worker.getCallingLink();
 	//for (int i = callingStack.size() - 1; i >= 0; i--) {
 		//FuncFrame& fnFrame = callingStack[i];
 	FuncFrame& fnFrame = callingStack.back();
+	auto envFind = fnFrame.functionEnvSymbols.find(name);
+	if (envFind != fnFrame.functionEnvSymbols.end()) {
+		return &(*envFind).second;
+	}
+	/*
 	for (int j = fnFrame.scopeStack.size() - 1; j >= 0; j--) {
 		ScopeFrame& scope = fnFrame.scopeStack[j];
 		auto it = scope.scopeVariables.find(name);
@@ -356,13 +393,13 @@ static VariableValue* __vmworker_find_variable(VMWorker& worker, std::wstring& n
 			return &(*it).second;
 		}
 	}
+	*/
 	//}
 
 	
 	//从闭包查找（如有）
-	auto& bottomScope = fnFrame.scopeStack[0]; //获取最底下的作用域
-	auto clos_find = bottomScope.scopeVariables.find(L"_clos"); //闭包对象通过参数隐式传递
-	if (clos_find != bottomScope.scopeVariables.end()) {
+	auto clos_find = fnFrame.functionEnvSymbols.find(L"_clos"); //闭包对象通过参数隐式传递
+	if (clos_find != fnFrame.functionEnvSymbols.end()) {
 		auto& closureObject = (*clos_find).second;
 		if (closureObject.getContentType() == ValueType::OBJECT) {
 			auto& closureObjectMap = closureObject.content.ref->implement.objectImpl;
@@ -453,6 +490,9 @@ VariableValue VMWorker::VMWorkerTask() {
 
 		//作用域结束了
 		if (currentScope->ep >= currentScope->byteCodeLength) {
+			currentFn->virtualStack.resize(currentScope->spStart);
+			currentFn->localVariables.resize(currentScope->localvarStart);
+			currentFn->localVarNames.resize(currentScope->localvarStart);
 			currentFn->scopeStack.pop_back(); //作用域结束后弹出
 			continue;
 		}
@@ -492,11 +532,19 @@ VariableValue VMWorker::VMWorkerTask() {
 			system("cls"); //clear();
 			printf("Command: %s\r\n", IOpCodeStr[op]);
 			printf("EIP: %d\r\n", rawep);
+			printf("===Environment===\r\n");
+			for (auto& env_pair : currentFn->functionEnvSymbols) {
+				printf("[%s]%s\n", wstring_to_string(env_pair.first).c_str(), wstring_to_string(env_pair.second.ToString()).c_str());
+			}
 			printf("===Variables===\r\n");
-			for (auto& scope : currentFn->scopeStack) {
-				for (auto varb : scope.scopeVariables) {
-					printf("[%ws]%ws\n", varb.first.c_str(), varb.second.ToString().c_str());
-				}
+			for (int i = 0; i < currentFn->localVariables.size(); i++) {
+
+				uint16_t packageId = currentFn->functionInfo->packageId;
+				auto& package = VMInstance->loadedPackages[packageId];
+				auto& name = package.ConstStringPool[currentFn->localVarNames[i]]->implement.stringImpl;
+				auto& varValue = currentFn->localVariables[i];
+
+				printf("[%s]%s\n", wstring_to_string(name).c_str(), wstring_to_string(varValue.ToString()).c_str());
 			}
 			printf("===Stack===\r\n");
 			int stki = 0;
@@ -654,6 +702,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			//scope.controlHandlerType = (ScopeFrame::ControlFlowType)*(currentFn->byteCode + rawep + sizeof(uint32_t) + 1);
 			scope.ControlFlowFlag |= *(currentFn->byteCode + rawep + sizeof(uint32_t) + 1);
 			scope.spStart = currentFn->virtualStack.size();
+			scope.localvarStart = currentFn->localVariables.size();
 			scope.ep = 0;
 			currentScope->ep += scope.byteCodeLength + OpCode::instructionSize[op]; //栈帧执行指针跳过，这样新的作用域销毁后执行下面的
 			currentFn->scopeStack.push_back(scope);
@@ -666,6 +715,8 @@ VariableValue VMWorker::VMWorkerTask() {
 			for (int i = currentFn->scopeStack.size() - 1; i >= 0; i--) {
 				if (currentFn->scopeStack[i].CheckControlFlowType(ScopeFrame::LOOP)) {
 					currentFn->virtualStack.resize(currentFn->scopeStack[i].spStart);
+					currentFn->localVariables.resize(currentFn->scopeStack[i].localvarStart);
+					currentFn->localVarNames.resize(currentFn->scopeStack[i].localvarStart);
 					currentFn->scopeStack.resize(i); //弹出包括这个LOOP本身的作用域
 					success = true;
 					break;
@@ -682,6 +733,8 @@ VariableValue VMWorker::VMWorkerTask() {
 			for (int i = currentFn->scopeStack.size() - 1; i >= 0; i--) {
 				if (currentFn->scopeStack[i].CheckControlFlowType(ScopeFrame::LOOP)) {
 					currentFn->virtualStack.resize(currentFn->scopeStack[i].spStart);
+					currentFn->localVariables.resize(currentFn->scopeStack[i].localvarStart);
+					currentFn->localVarNames.resize(currentFn->scopeStack[i].localvarStart);
 					currentFn->scopeStack.resize(i + 1); //弹出LOOP之上的所有作用域帧
 					currentFn->scopeStack.back().ep = 0; //重新开始执行这个作用域
 					success = true;
@@ -959,36 +1012,51 @@ VariableValue VMWorker::VMWorkerTask() {
 				target = &changeBuffer;
 			}
 
-			uint16_t id = currentFn->functionInfo->packageId;
-			auto& strPool = VMInstance->loadedPackages[id].ConstStringPool;
-			VMObject* nameStringObject = strPool[nameStringIndex];
 
-
-			if (currentScope->scopeVariables.find(nameStringObject->implement.stringImpl) == currentScope->scopeVariables.end()) {
-				currentScope->scopeVariables[nameStringObject->implement.stringImpl] = *target;
-			}
-			else {
-				//不能重复定义
-				ThrowError(L"double defined symbol:" + nameStringObject->implement.stringImpl);
+			//判断是否已经定义过
+			//通过寻找此str_id是否存在，且str_id对应的索引是否有效
+			/*
+			if (currentFn->localVarNames) {
+				uint16_t id = currentFn->functionInfo->packageId;
+				auto& strPool = VMInstance->loadedPackages[id].ConstStringPool;
+				std::wstring& nameString = strPool[nameStringIndex]->implement.stringImpl;
+				ThrowError(nameString + L" has already been declared");
 				continue;
 			}
+			*/
+
+			currentFn->localVariables.push_back(*target);
+			currentFn->localVarNames.push_back(nameStringIndex);
 			break;
 		}
 		case OpCode::DEF_LOCAL:
 		{
-			VariableValue* varName = currentFn->virtualStack.back().getRawVariable();
+			uint16_t str_id = 0;
+			memcpy(&str_id, currentFn->byteCode + rawep + 1, sizeof(uint16_t));
 			VariableValue v;
 			v.varType = ValueType::NULLREF;
-			std::wstring str = varName->content.ref->implement.stringImpl;
+			uint16_t package_id = currentFn->functionInfo->packageId;
 
-			currentScope->scopeVariables[str] = v;
+			std::wstring str = VMInstance->loadedPackages[package_id].ConstStringPool[str_id]->implement.stringImpl;
 
+			//currentScope->scopeVariables[str] = v;
 
-			currentFn->virtualStack.pop_back();
+			currentFn->localVariables.push_back(v);
+			currentFn->localVarNames.push_back(str_id);
+
+			//currentFn->virtualStack.pop_back();
 			break;
 		}
-		case OpCode::DEF_GLOBAL:
+		case OpCode::LOAD_LOCAL:
+		{
+			uint16_t var_id = 0;
+			memcpy(&var_id, currentFn->byteCode + rawep + 1, sizeof(uint16_t));
+			VariableValue v;
+			v.varType = ValueType::BRIDGE;
+			v.content.bridge_ref = &currentFn->localVariables[var_id];
+			currentFn->virtualStack.push_back(v);
 			break;
+		}
 		case OpCode::DEL_DEF:
 			break;
 		case OpCode::LOAD_VAR:
