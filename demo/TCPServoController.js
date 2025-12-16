@@ -18,7 +18,7 @@ global.servo = Servo.create(16, 3);
 global.servoDegree = 0;
 delay(1000);
 //Create an independent task to achieve smoother rotation.
-runTask(param => {
+runTask(() => {
     let cur = 0;
     while (true) {
         if (cur < global.servoDegree) {
@@ -30,7 +30,7 @@ runTask(param => {
         global.servo.setAngle(cur);
         delay(10);
     }
-}, null);
+});
 
 WiFi.connect("your_wifi", "your_password");
 while (!WiFi.isConnected()) {
@@ -62,3 +62,4 @@ while (true) {
 
     println("target=" + servoDegree);
 }
+
