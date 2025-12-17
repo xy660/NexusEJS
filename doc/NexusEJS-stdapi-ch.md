@@ -43,9 +43,6 @@
 - **.writeUTF16(offset: number, str: string, [addNull?: boolean = true])**  
   向指定偏移量写入UTF-16字符串，可选是否添加空终止符
 
-- **.finalize()**  
-  销毁Buffer对象并释放底层内存，返回是否成功销毁
-
 ## Math.*
 
 - **Math.sin(x: number)** - 正弦函数
@@ -103,7 +100,6 @@
 - **.isRunning()** - 检查任务是否正在运行
 - **.waitTimeout(timeout: number)** - 等待任务完成，指定超时时间
 - **.getResult()** - 获取任务执行结果
-- **.finalize()** - 销毁任务控制对象
 
 ### 同步与锁
 
