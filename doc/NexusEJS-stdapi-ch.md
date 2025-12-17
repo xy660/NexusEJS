@@ -136,6 +136,10 @@ try{
 - *gc()*
 强制在当前线程唤醒GC，暂停世界并回收内存垃圾
 
+- *delay(ms : number)*
+
+让出CPU使当前worker休眠指定毫秒数
+
 ## 类型说明
 
 - 所有Buffer读写方法的偏移量和大小参数必须满足：`0 ≤ offset < length` 且 `offset + size ≤ length`
