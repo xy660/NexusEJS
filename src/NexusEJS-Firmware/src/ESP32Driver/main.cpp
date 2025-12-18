@@ -27,13 +27,6 @@ void setup()
 
     ESP32_Platform_Init();
 
-    auto scan = BLEDevice::getScan();
-    scan->start(3000);
-    auto res = scan->getResults();
-    for(int i = 0;i < res.getCount();i++){
-        Serial.printf("name=%s\n",res.getDevice(i).getName());
-    }
-
     
 
     Serial.println("platform inited");
@@ -53,7 +46,7 @@ void setup()
     RegisterSystemFunc(L"delay", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
     {
     
-    delay((uint32_t)args[0].content.number);
+    vTaskDelay((uint32_t)args[0].content.number / portTICK_PERIOD_MS);
 
     return VariableValue(); 
     });

@@ -118,12 +118,14 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 		fn.content.function->funcImpl.local_func.byteCode = byteCodeBuffer;
 		fn.content.function->funcImpl.local_func.byteCodeLength = byteCodeLength;
 		fn.content.function->funcImpl.local_func.funcName = fnName;
+		fn.content.function->funcImpl.local_func.funcNameStrId = fnNameStrId;
 		fn.content.function->funcImpl.local_func.arguments = arguments;
 		fn.content.function->funcImpl.local_func.outsideSymbols = outsideSymbols;
 		fn.content.function->funcImpl.local_func.packageId = packageId;
 		//this->storeGlobalSymbol(fnName, fn);
 		this->loadedPackages[packageId].bytecodeFunctions[fnName] = fn;
 		this->loadedPackages[packageId].packageName = packageName;
+		this->loadedPackages[packageId].packageId = packageId;
 	}
 
 	return packageId;
@@ -194,12 +196,19 @@ VariableValue VM::InitAndCallEntry(std::wstring& name,uint16_t id) {
 
 	platform.MutexUnlock(this->globalSymbolLock);
 	std::vector<VariableValue> args; //main函数无参数
+	uint32_t current_workerid = lastestTaskId++;
+	worker->currentWorkerId = current_workerid;
+	TaskContext context;
+	context.function = *entryRef;
+	context.id = current_workerid;
+	context.status = TaskContext::RUNNING;
+	context.worker = worker;
+	tasks[current_workerid] = context; //注册到VM
 	return worker->Init(entry,args);
 
 }
 
-VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableValue>& args,VMObject* thisValue)
-{
+VariableValue VM::InvokeCallbackWithWorker(VMWorker* worker,VariableValue& function, std::vector<VariableValue>& args, VMObject* thisValue) {
 	ScriptFunction* code = NULL;
 	if (function.varType == ValueType::REF && function.content.ref->type == ValueType::FUNCTION) {
 		code = function.content.ref->implement.closFuncImpl.sfn;
@@ -222,7 +231,7 @@ VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableVa
 	std::unordered_map<std::wstring, VariableValue> env;
 
 	//如果是对象的那种函数他是带闭包的，需要设置一下闭包环境(前提closure不为NULL)
-	if (function.varType == ValueType::REF && 
+	if (function.varType == ValueType::REF &&
 		function.content.ref->implement.closFuncImpl.closure) {
 		env[L"_clos"] = CreateReferenceVariable(
 			function.content.ref->implement.closFuncImpl.closure);
@@ -233,12 +242,24 @@ VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableVa
 		env[L"this"] = CreateReferenceVariable(thisValue);
 	}
 
-	VMWorker* worker = new VMWorker(this); //创建临时Worker
 	//加锁
 	platform.MutexLock(this->globalSymbolLock);
 	this->workers.push_back(std::unique_ptr<VMWorker>(worker));
 	platform.MutexUnlock(this->globalSymbolLock);
 
+	uint32_t current_workerid = lastestTaskId++;
+	worker->currentWorkerId = current_workerid;
+	TaskContext context;
+	context.function = function;
+	context.id = current_workerid;
+	context.status = TaskContext::RUNNING;
+	context.worker = worker;
+	tasks[current_workerid] = context; //注册到VM
 
-	return worker->Init(code->funcImpl.local_func,args, &env);
+	return worker->Init(code->funcImpl.local_func, args, &env);
+}
+
+VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableValue>& args,VMObject* thisValue)
+{
+	return InvokeCallbackWithWorker(new VMWorker(this), function, args, thisValue);
 }

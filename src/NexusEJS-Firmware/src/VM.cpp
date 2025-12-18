@@ -17,6 +17,10 @@
 #include "StringConverter.h"
 #include "StringManager.h"
 
+#if VM_DEBUGGER_ENABLED
+#include "VMDebugger.h"
+#endif
+
 
 #pragma region BINARY_OP_TEMPLATE
 
@@ -256,7 +260,12 @@ void VMWorker::ThrowError(VariableValue& messageString)
 		stream << L"at " << fnFrame.functionInfo->funcName << "(";
 		for (int argIndex = 0; argIndex < fnFrame.functionInfo->arguments.size(); argIndex++) {
 			if (argIndex != 0) stream << L",";
-			stream << fnFrame.functionInfo->arguments[argIndex];
+			auto argName = VMInstance->loadedPackages[fnFrame.functionInfo->packageId].ConstStringPool[fnFrame.functionInfo->arguments[argIndex]]->ToString();
+
+			stream << argName;
+
+			stream << L"=";
+			stream << fnFrame.localVariables[argIndex].ToString();
 		}
 		stream << L") offset:" << fnFrame.scopeStack.back().byteCodeStart + fnFrame.scopeStack.back().ep << std::endl;
 	}
@@ -367,6 +376,8 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 	VMObject* closureFunction = worker->VMInstance->currentGC->GC_NewObject(ValueType::FUNCTION);
 	if (closureContainer.size() > 0) {
 		VMObject* closureObject = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+		//拷贝自己到闭包环境确保递归调用有效
+		closureContainer[sfn->funcImpl.local_func.funcName] = CreateReferenceVariable(closureFunction); 
 		closureObject->implement.objectImpl = closureContainer; //拷贝过去
 		closureFunction->implement.closFuncImpl.closure = closureObject;
 	}
@@ -510,9 +521,13 @@ VariableValue VMWorker::VMWorkerTask() {
 
 		OpCode::IOpCode op = (OpCode::IOpCode)currentFn->byteCode[rawep];
 
+		uint16_t packageId = currentFn->functionInfo->packageId;
 
+#if VM_DEBUGGER_ENABLED
+		//启用调试器后每一步都调用检查点
+		Debugger_CheckPoint(this, rawep, packageId);
 
-
+#endif
 
 #ifdef _DEBUG
 
@@ -591,7 +606,7 @@ VariableValue VMWorker::VMWorkerTask() {
 					res.content.ref->implement.stringImpl = resstr;
 				}
 				else {
-					ThrowError(L"ADD 指令只能接受数字类型operation not vaild");
+					ThrowError(L"ADD operation not vaild");
 				}
 			}
 			else {
@@ -780,8 +795,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			memcpy(&strid, currentFn->byteCode + rawep + 1, sizeof(uint16_t));
 
 			VariableValue v;
-			uint16_t id = currentFn->functionInfo->packageId;
-			auto& strPool = VMInstance->loadedPackages[id].ConstStringPool;
+			auto& strPool = VMInstance->loadedPackages[packageId].ConstStringPool;
 			VMObject* str = strPool[strid];
 			v.varType = ValueType::REF;
 			v.content.ref = str;
@@ -1035,9 +1049,8 @@ VariableValue VMWorker::VMWorkerTask() {
 			memcpy(&str_id, currentFn->byteCode + rawep + 1, sizeof(uint16_t));
 			VariableValue v;
 			v.varType = ValueType::NULLREF;
-			uint16_t package_id = currentFn->functionInfo->packageId;
 
-			std::wstring str = VMInstance->loadedPackages[package_id].ConstStringPool[str_id]->implement.stringImpl;
+			std::wstring str = VMInstance->loadedPackages[packageId].ConstStringPool[str_id]->implement.stringImpl;
 
 			//currentScope->scopeVariables[str] = v;
 

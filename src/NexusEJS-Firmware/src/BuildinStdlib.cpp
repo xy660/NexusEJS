@@ -43,7 +43,7 @@ VariableValue TaskObj_finalizeFunc;
 
 typedef struct _TaskStartParam
 {
-	VariableValue arg;
+	//VariableValue arg;
 	int taskId = 0;
 	VM* VMInstance = NULL;
 }TaskStartParam;
@@ -56,16 +56,22 @@ void* TaskEntry(void* param) {
 
 	auto& context = taskParam.VMInstance->tasks[taskParam.taskId];
 	context.status = TaskContext::RUNNING;
-	//std::unordered_map<std::wstring, VariableValue> paramList;
-	//paramList[context.sfn->arguments[0]] = taskParam.arg; //拷贝第一个也是唯一一个参数
-	std::vector<VariableValue> paramList;
-	paramList.push_back(taskParam.arg);
+	context.worker = new VMWorker(taskParam.VMInstance);
+	if (!context.worker) {
+		platform.MutexUnlock(taskParam.VMInstance->globalSymbolLock);
+		return NULL; //分配失败静默失败
+	}
+	
 
 	platform.MutexUnlock(taskParam.VMInstance->globalSymbolLock);
 
+	//开始调用脚本函数
+	std::vector<VariableValue> paramList;
 	context.worker->currentWorkerId = taskParam.taskId;
-	auto res = context.worker->Init(*context.sfn,paramList);
-
+	//自动注册到VM并Call过去
+	auto res = taskParam.VMInstance->InvokeCallbackWithWorker(context.worker, context.function, paramList, NULL);
+	
+	//处理返回值
 	platform.MutexLock(taskParam.VMInstance->globalSymbolLock); 
 
 	context = taskParam.VMInstance->tasks[taskParam.taskId]; //重新获取避免地址变化
@@ -843,7 +849,7 @@ void BuildinStdlib_Init()
 
 	SingleSystemFuncInit();
 
-	RegisterSystemFunc(L"runTask", 2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	RegisterSystemFunc(L"runTask", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		//return VariableValue();
 
 		VM* currentVM = currentWorker->VMInstance;
@@ -855,45 +861,48 @@ void BuildinStdlib_Init()
 			return VariableValue();
 		}
 
-		ScriptFunction* targetInvoke = args[0].getRawVariable()->content.function;
+		ScriptFunction* targetInvoke;
+		if (args[0].varType == ValueType::REF) {
+			targetInvoke = args[0].content.ref->implement.closFuncImpl.sfn;
+		}
+		else {
+			targetInvoke = args[0].content.function;
+		}
+		//args[0].getRawVariable()->content.function;
 
 		if (targetInvoke->type != ScriptFunction::Local) {
 			currentWorker->ThrowError(L"task must be local function.");
 			return VariableValue();
 		}
 
-		if (targetInvoke->argumentCount != 1) {
-			currentWorker->ThrowError(L"entry must has 1 arg");
+		if (targetInvoke->argumentCount != 0) {
+			currentWorker->ThrowError(L"entry must has 0 arg");
 			return VariableValue();
 		}
 
 		
 
-		platform.MutexLock(currentVM->globalSymbolLock);
-
 		uint32_t currentTaskId = currentVM->lastestTaskId++;
-
-		currentVM->workers.push_back(std::unique_ptr<VMWorker>(new VMWorker(currentVM)));
 		
-
 		TaskContext context;
 		context.id = currentTaskId;
-		context.worker = currentVM->workers.back().get();
+		//context.worker = new VMWorker(currentWorker->VMInstance);
 		context.processEntry = TaskEntry;
-		context.sfn = &targetInvoke->funcImpl.local_func;
+		context.function = args[0];
 		
+		currentVM->tasks[currentTaskId] = context;
 
 		TaskStartParam* taskParam = (TaskStartParam*)platform.MemoryAlloc(sizeof(TaskStartParam));
 
 		taskParam->taskId = currentTaskId;
 		taskParam->VMInstance = currentVM;
-		taskParam->arg = *args[1].getRawVariable();
+		//taskParam->arg = *args[1].getRawVariable();
 
 		uint32_t threadId = platform.StartThread(context.processEntry, taskParam);
 
 		if (!threadId) {
 			platform.MemoryFree(taskParam);
-			currentVM->workers.pop_back();
+			//currentVM->workers.pop_back();
 			return VariableValue(); //失败返回NULLREF
 		}
 
@@ -901,9 +910,6 @@ void BuildinStdlib_Init()
 
 		context.status = TaskContext::RUNNING;
 
-		currentVM->tasks[currentTaskId] = context;
-
-		platform.MutexUnlock(currentVM->globalSymbolLock);
 
 		return CreateReferenceVariable(CreateTaskControlObject(
 			context.id,

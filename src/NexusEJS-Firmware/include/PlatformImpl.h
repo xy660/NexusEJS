@@ -1,6 +1,6 @@
 #pragma once
-
 #include<stdint.h>
+#include<string>
 
 typedef void* (*MemoryAllocDef)(uint32_t size);
 typedef void (*MemoryFreeDef)(void* pHeap);
@@ -36,5 +36,25 @@ public:
 	MemoryFreePercentDef MemoryFreePercent; //返回系统可用内存百分比 0.0-1.0
 };
 
+
+
+typedef void (*SendToDebuggerDef)(const char* msg);
+
+typedef std::string (*ReadFromDebuggerDef)();
+
+typedef bool (*IsDebuggerConnectedDef)();
+
+class DebuggerImpl {
+public:
+	bool implemented = false;
+	SendToDebuggerDef SendToDebugger;
+	ReadFromDebuggerDef ReadFromDebugger;
+	IsDebuggerConnectedDef IsDebuggerConnected;
+};
+
+//平台层实现调试器通信层
+extern DebuggerImpl debuggerImpl;
+
 //初始化虚拟机之前必须填充platform依赖的原生函数
 extern PlatformImpl platform;
+

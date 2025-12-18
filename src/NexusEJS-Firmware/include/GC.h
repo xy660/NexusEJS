@@ -24,9 +24,7 @@ private:
 
 	uint32_t prevGCTime = 0;
 	 
-	void StopTheWorld();
-
-	void ResumeTheWorld();
+	
 
 	void Internal_GC_Collect();
 
@@ -39,6 +37,10 @@ public:
 	volatile bool GCRequired = false;
 	
 	//volatile bool GC_Working = false;
+
+	void StopTheWorld();
+
+	void ResumeTheWorld();
 
 	void enterSTWSafePoint();
 

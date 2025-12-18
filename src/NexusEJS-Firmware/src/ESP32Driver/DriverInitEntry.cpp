@@ -56,6 +56,20 @@ esp_err_t i2c_master_read(uint8_t addr, uint8_t* data, size_t len) {
 
 #pragma endregion
 
+bool _StartWith(const char* src,const char* header){
+    int srcLength = strlen(src);
+    int headerLength = strlen(header);
+    if(srcLength < headerLength){
+        return false;
+    }
+    for(int i = 0;i < headerLength;i++){
+        if(src[i] != header[i]){
+            return false;
+        }
+    }
+    return true;
+}
+
 void ESP32_Platform_Init(){
     Serial.begin(9600);
     Serial.println("VM inited");
@@ -160,6 +174,45 @@ void ESP32_Platform_Init(){
     platform.MemoryFreePercent = []() -> float {
         return (float)esp_get_free_heap_size() / (float)heap_caps_get_total_size(MALLOC_CAP_8BIT);
     };
+
+#if VM_DEBUGGER_ENABLED
+    //如果启用调试器就编译兼容层
+
+    //static bool debuggerConnected = false;
+    debuggerImpl.IsDebuggerConnected = []() -> bool{
+        return true;
+    };
+    debuggerImpl.ReadFromDebugger = []() -> std::string{
+        std::ostringstream stream;
+        while(true){
+            if(Serial.available() > 0){
+                char c = Serial.read();
+                if(c == '\n'){
+                    if(_StartWith(stream.str().c_str(),"debugger:")){
+                        return stream.str().substr(9); //删掉协议头
+                    }else{
+                        stream.str("");
+                    }
+                }
+                else{
+                    stream << c;
+                }
+            }
+        }
+    };
+    debuggerImpl.SendToDebugger = [](const char* msg) -> void {
+        static void* sendLock = NULL;
+        if(!sendLock){
+            sendLock = platform.MutexCreate();
+        }
+        platform.MutexLock(sendLock);
+        Serial.printf("debugger:%s\n",msg);
+        platform.MutexUnlock(sendLock);
+    };
+    debuggerImpl.implemented = true;
+
+#endif
+
 }
 
 void ESP32_GpioClass_Init(VM* VMInstance){

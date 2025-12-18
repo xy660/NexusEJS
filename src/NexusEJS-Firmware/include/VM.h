@@ -1,15 +1,19 @@
 #pragma once
 
+#define VM_VERSION_NUMBER 3
+
+#define VM_VERSION_STR L"V1.2.0"
+
+#define DYNAMIC_ARGUMENT 0xFF
+
+#define VM_DEBUGGER_ENABLED 0
+
 #include <memory>
 #include <vector>
 #include "ByteCode.h"
 #include "VariableValue.h"
 
-#define VM_VERSION_NUMBER 2
 
-#define VM_VERSION_STR L"V1.1.0"
-
-#define DYNAMIC_ARGUMENT 0xFF
 
 class GC;
 class VM;
@@ -103,7 +107,7 @@ public:
 	uint32_t id = 0;
 	uint32_t threadId = 0;
 	VMWorker* worker = NULL;
-	ByteCodeFunction* sfn = NULL; //指向方法的指针（方法均为常量/持久化变量，不会失效）
+	VariableValue function;
 	ThreadEntry processEntry = NULL; //执行线程
 	volatile enum TaskStatus {
 		STOPED,
@@ -126,7 +130,7 @@ public:
 
 	GC* currentGC;
 	//存储worker上下文
-	uint32_t lastestTaskId = 1; //用于自增id
+	uint32_t lastestTaskId = 2; //用于自增id
 	void* globalSymbolLock;
 
 
@@ -154,6 +158,8 @@ public:
 	PackageContext* GetPackageByName(std::wstring& name);
 
 	VariableValue InitAndCallEntry(std::wstring& name, uint16_t id);
+
+	VariableValue InvokeCallbackWithWorker(VMWorker* worker, VariableValue& function, std::vector<VariableValue>& args, VMObject* thisValue);
 
 	//只能接收字节码函数，请勿传入原生函数
 	VariableValue InvokeCallback(VariableValue& code, std::vector<VariableValue>& args,VMObject* thisValue);
