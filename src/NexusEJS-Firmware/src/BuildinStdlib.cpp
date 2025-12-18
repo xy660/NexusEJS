@@ -948,6 +948,29 @@ void BuildinStdlib_Init()
 		platform.MutexUnlock(vmo->mutex);
 		return VariableValue();
 	});
+	
+	RegisterSystemFunc(L"require", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
+
+		if (args[0].getContentType() != ValueType::STRING) {
+			currentWorker->ThrowError(L"invaild argument");
+			return VariableValue();
+		}
+
+		if (!platform.FileExist(args[0].content.ref->implement.stringImpl)) {
+			currentWorker->ThrowError(L"file dos not exist");
+			return VariableValue();
+		}
+		uint32_t fileSize = 0;
+		uint8_t* nejsBuffer = platform.ReadFile(args[0].content.ref->implement.stringImpl,&fileSize);
+		
+		uint16_t id = currentWorker->VMInstance->LoadPackedProgram(nejsBuffer, fileSize);
+
+		platform.MemoryFree(nejsBuffer);
+		
+		std::wstring entryName = L"main_entry";
+		return currentWorker->VMInstance->InitAndCallEntry(entryName, id);
+
+		});
 
 	VMObject* NumberClassObject = CreateStaticObject(ValueType::OBJECT);
 	NumberClassObject->implement.objectImpl[L"parseFloat"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {

@@ -3,6 +3,8 @@
 #ifndef VARIABLE_VALUE_H
 #define VARIABLE_VALUE_H
 
+#pragma message("VariableValue.h被包含！") 
+
 #endif
 
 #include<unordered_map>
