@@ -1,6 +1,6 @@
-NexusEJS Debugger快速指南
+# NexusEJS Debugger快速指南
 
-#使用nejsdbg调试器
+## 使用nejsdbg调试器
 
 使用如下命令启动nejsdbg调试器：
 ```bash
