@@ -4,7 +4,7 @@
 
 ### 编写并编译脚本
 
-1. 编写你的js脚本
+1. 编写你的js脚本（熟悉JS的开发者快速入门请下滑看语法示例）
 2. 运行nejsc编译器命令：`nejsc your_app.js`在目录下得到`your_app.nejs`和映射文件`your_app.nejs.map`
 
 ### 编译固件并部署
@@ -15,7 +15,74 @@
 
 ### 调试
 
+1. **基础栈回溯行号获取**
 复制异常对象中的stackTrace字段，使用offset2line工具运行命令：`offset2line your_app.nejs.map`加载map文件，然后根据提示粘贴栈回溯信息即可获得源码行号
+
+2. **使用nejsdbg调试器**
+使用如下命令启动nejsdbg调试器：
+```bash
+nejsdbg <mode> <addr>
+```
+举例：
+```bash
+nejsdbg serial COM3
+```
+
+然后你就能看到如下界面：
+
+```bash
+Connected COM3
+Restart device to trig the default breakpoint.
+====BreakPoint====
+Stack trace:
+  at main_entry() line:1
+Scopes:
+  {start:0, length:325, ep:325, attr:0}
+  {start:6, length:319, ep:0, attr:0}
+NexusEJS.Debugger>>
+```
+
+如果断点没自动触发，需要按下设备的RST按钮重启设备，启用调试的VM会自动在`main_entry`函数的第一行触发断点
+
+### 尝试基础命令
+
+在entry.js的30行打下断点（确保entry.nejs.map映射文件在同目录下，否则将会失败）
+```bash
+NexusEJS.Debugger>>break add entry.js:30
+done
+NexusEJS.Debugger>>break list
+entry.js:30
+entry.js:1
+done
+NexusEJS.Debugger>>break remove entry.js:30
+done
+NexusEJS.Debugger>>resume
+done
+NexusEJS.Debugger>>
+
+```
+
+手动暂停VM执行
+
+```bash
+NexusEJS.Debugger>>stw
+at main_entry()  line:30
+
+====BreakPoint====
+Stack trace:
+  at main_entry()  line:30
+Variables:
+  server = {"mapPost":<func>,"_id":1,"begin":<func>,"port":80,"_cb":[<clos_fn>],"finalize":<func>,"mapGet":<func>}
+  cnt = 0
+  obj = {"inc":<clos_fn>,"value":0}
+Scopes:
+  {start:0, length:325, ep:325, attr:0}
+  {start:6, length:319, ep:319, attr:0}
+  {start:275, length:50, ep:20, attr:1}
+NexusEJS.Debugger>>
+```
+
+更多调试器示例请参阅NexusEJS-Debugger文档
 
 ---
 
@@ -153,6 +220,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
