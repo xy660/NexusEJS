@@ -701,6 +701,11 @@ namespace ScriptRuntime.Core
 
         public static ASTNode BuildASTByTokens(List<Token> tokens)
         {
+            if(tokens.Count == 0)
+            {
+                return new ASTNode(ASTNode.ASTNodeType.BlockCode, "", 0);
+            }
+
             var old_ASTStream = ASTParseStream;
             var old_pos = _pos;
             ASTParseStream = tokens;

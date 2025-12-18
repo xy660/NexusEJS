@@ -8,10 +8,18 @@ namespace CompileLab
 {
     internal class Program
     {
+        static bool DetailOutput = false;
         static void Main(string[] args)
         {
             if (args.Length > 0)
             {
+                foreach (var arg in args)
+                {
+                    if(arg == "--detail")
+                    {
+                        DetailOutput = true;
+                    }
+                }
                 var code = File.ReadAllText(args[0].Replace("\"", ""));
                 code = StringUtils.ClearMultiSpace(code);
                 code = StringUtils.RemoveSingleLineComments(code);
@@ -23,20 +31,21 @@ namespace CompileLab
 
                 var comp = new Compiler();
                 var result = comp.FullCompile(ast);
-                
 
-                foreach (var cc in result)
+                if (DetailOutput)
                 {
-                    Console.WriteLine("FuncName: " + cc.Key);
-                    Console.WriteLine("Args: " + string.Join(",", cc.Value.arguments));
-                    Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.bytecode) + "]");
-                    Console.WriteLine("asm: \r\n" + cc.Value.asm);
-                    foreach (var map in cc.Value.mapper)
+                    foreach (var cc in result)
                     {
-                        Console.WriteLine($"offset:{map.offset} <-> line:{map.line}");
+                        Console.WriteLine("FuncName: " + cc.Key);
+                        Console.WriteLine("Args: " + string.Join(",", cc.Value.arguments));
+                        Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.bytecode) + "]");
+                        Console.WriteLine("asm: \r\n" + cc.Value.asm);
+                        foreach (var map in cc.Value.mapper)
+                        {
+                            Console.WriteLine($"offset:{map.offset} <-> line:{map.line}");
+                        }
                     }
                 }
-
                 
 
 
@@ -46,7 +55,8 @@ namespace CompileLab
 
                 byte[] packed = Compiler.PackFunction(packageName,comp.ConstString, result);
 
-                Console.WriteLine("packed: [" + string.Join(",", packed) + "]");
+                if(DetailOutput) 
+                    Console.WriteLine("packed: [" + string.Join(",", packed) + "]");
 
                 File.WriteAllBytes(outputName, packed);
                 StringBuilder mapbuf = new StringBuilder();

@@ -46,7 +46,7 @@ namespace ScriptRuntime.Core
 
     class Compiler
     {
-        public static ushort Version = 2;
+        public static ushort Version = 3;
         enum OpCode
         {
             //运算符
@@ -598,7 +598,7 @@ namespace ScriptRuntime.Core
                 ast.NodeType != ASTNode.ASTNodeType.FunctionDefinition)
             {
                 OffsetLineMapper.Add(((uint)(ms.Position + baseOffset), ast.line));
-                Console.WriteLine($"{ast.NodeType} offset:{baseOffset + ms.Position} line:{ast.line}");
+                //Console.WriteLine($"{ast.NodeType} offset:{baseOffset + ms.Position} line:{ast.line}");
             }
 
 
