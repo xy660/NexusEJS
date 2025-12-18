@@ -169,16 +169,16 @@ namespace ScriptRuntime.Core
                 var keyAST = BuildASTByTokens(tokens.Take(1).ToList());
                 if(keyAST.Childrens.Count != 1)
                 {
-                    throw new SyntaxException("对象成员名称解析错误：" + name.raw, ClipTokenString(0, tokens.Count, tokens));
+                    throw new SyntaxException("对象成员名称解析错误：" + name.raw, name);
                 }
                 if (tokens[1].raw != ":")
                 {
-                    throw new SyntaxException("对象定义语法错误", ClipTokenString(0,tokens.Count,tokens));
+                    throw new SyntaxException("对象定义语法错误", name);
                 }
                 var value = BuildASTByTokens(tokens.Skip(2).ToList());
                 if(value.Childrens.Count != 1)
                 {
-                    throw new SyntaxException("值多解析歧义", ClipTokenString(0, tokens.Count, tokens));
+                    throw new SyntaxException("值多解析歧义", name);
                 }
                 ASTNode objNode = new ASTNode(ASTNode.ASTNodeType.KeyValuePair, string.Empty,name.line);
                 //objNode.Childrens.Add(new ASTNode(ASTNode.ASTNodeType.Identifier, name.raw));
@@ -213,7 +213,7 @@ namespace ScriptRuntime.Core
             }
             else if (val.tokenType != TokenType.Idfefinder)
             {
-                throw new SyntaxException("无效的解析值类型", val.raw); 
+                throw new SyntaxException("无效的解析值类型",val); 
             }
 
             if (char.IsDigit(val.raw[0]))
@@ -244,7 +244,7 @@ namespace ScriptRuntime.Core
             }
             else if(val.raw == "var")
             {
-                throw new SyntaxException("不支持var，请使用let或global声明变量",ClipTokenString(_pos - 1,5,ASTParseStream));
+                throw new SyntaxException("不支持var，请使用let或global声明变量",val);
             }
             else if (val.raw == "let")
             {
@@ -261,7 +261,7 @@ namespace ScriptRuntime.Core
                 var argsToken = PollToken();
                 if (argsToken.tokenType != TokenType.Part)
                 {
-                    throw new SyntaxException("函数定义语法不正确", ClipTokenString(_pos - 1, 2, ASTParseStream));
+                    throw new SyntaxException("函数定义语法不正确", argsToken);
                 }
                 var args = argsToken.raw.Replace(" ", "").Split(",", StringSplitOptions.RemoveEmptyEntries);
                 var block = PollToken();
@@ -295,7 +295,7 @@ namespace ScriptRuntime.Core
                 
                 if(lockObj.tokenType != TokenType.Part || code.tokenType != TokenType.CodeBlock)
                 {
-                    throw new SyntaxException("lock语句语法不正确",ClipTokenString(_pos - 3,ASTParseStream.Count,ASTParseStream));
+                    throw new SyntaxException("lock语句语法不正确",lockObj);
                 }
                 var lockIdf = BuildASTByTokens(SplitTokens(lockObj.raw,lockObj.line)).Childrens[0];
                 if(lockIdf.NodeType != ASTNode.ASTNodeType.Identifier)
@@ -342,7 +342,7 @@ namespace ScriptRuntime.Core
                         var argAST = BuildASTByTokens(SplitTokens(arg,argsTokenLine));
                         if (argAST.Childrens.Count != 1)
                         {
-                            throw new SyntaxException("函数调用参数内出现多重解析的表达式", GetASTString(argAST));
+                            throw new SyntaxException("函数调用参数内出现多重解析的表达式", argsToken);
                         }
                         funcAST.Childrens.Add(argAST.Childrens[0]);
                     }
@@ -357,7 +357,7 @@ namespace ScriptRuntime.Core
                     var indexExpr = BuildASTByTokens(indexTokens);
                     if (indexExpr.Childrens.Count != 1)
                     {
-                        throw new SyntaxException("数组下标表达式内出现多重解析", GetASTString(indexExpr));
+                        throw new SyntaxException("数组下标表达式内出现多重解析", IndexLabelToken);
                     }
                     indexAST.Childrens.Add(indexExpr.Childrens[0]);
                     left = indexAST;
@@ -383,7 +383,7 @@ namespace ScriptRuntime.Core
                     //左边必须要是标识符或者括号
                     if(left.tokenType != TokenType.Part && left.tokenType != TokenType.Idfefinder)
                     {
-                        throw new SyntaxException("=>运算符左边必须是标识符或括号",ClipTokenString(_pos - 1,5,ASTParseStream));
+                        throw new SyntaxException("=>运算符左边必须是标识符或括号",op);
                     }
                     PollToken();
                     
@@ -472,13 +472,13 @@ namespace ScriptRuntime.Core
                     var ifSyntax = PollToken();
                     if (ifSyntax.tokenType != TokenType.Part)
                     {
-                        throw new SyntaxException("if语句后条件表达式错误", ifSyntax.raw);
+                        throw new SyntaxException("if语句后条件表达式错误", ifSyntax);
                     }
                     ASTNode astIfStat = new ASTNode(ASTNode.ASTNodeType.IfStatement, string.Empty, key.line);
                     var synAST = BuildASTByTokens(SplitTokens(ifSyntax.raw,ifSyntax.line));
                     if (synAST.Childrens.Count != 1)
                     {
-                        throw new SyntaxException("if条件语句歧义", GetASTString(synAST));
+                        throw new SyntaxException("if条件语句歧义", ifSyntax);
                     }
                     astIfStat.Childrens.Add(synAST.Childrens[0]);
                     if (PeekToken().tokenType != TokenType.CodeBlock)
@@ -523,13 +523,13 @@ namespace ScriptRuntime.Core
                     var whileSyntax = PollToken();
                     if (whileSyntax.tokenType != TokenType.Part)
                     {
-                        throw new SyntaxException("while语句后条件表达式错误", whileSyntax.raw);
+                        throw new SyntaxException("while语句后条件表达式错误", whileSyntax);
                     }
                     ASTNode astWhileStat = new ASTNode(ASTNode.ASTNodeType.WhileStatement, string.Empty,key.line);
                     var synAST = BuildASTByTokens(SplitTokens(whileSyntax.raw,whileSyntax.line));
                     if (synAST.Childrens.Count != 1)
                     {
-                        throw new SyntaxException("while条件语句歧义", GetASTString(synAST));
+                        throw new SyntaxException("while条件语句歧义", key);
                     }
                     astWhileStat.Childrens.Add(synAST.Childrens[0]);
                     if (PeekToken().tokenType != TokenType.CodeBlock)
@@ -566,7 +566,7 @@ namespace ScriptRuntime.Core
                         //VariableDec是单独的AST节点，如果定义新变量Count就是4
                         if(forSyntaxs.Childrens.Count != 3 && forSyntaxs.Childrens.Count != 4)
                         {
-                            throw new SyntaxException("for语句语法不正确：",ClipTokenString(0,synSplit.Count,synSplit));
+                            throw new SyntaxException("for语句语法不正确：",forEachSyntax);
                         }
                         var forAST = new ASTNode(ASTNode.ASTNodeType.ForStatement, "",key.line);
 
@@ -666,7 +666,7 @@ namespace ScriptRuntime.Core
                     }
                     else
                     {
-                        throw new SyntaxException("try语句后找不到catch语句", ClipTokenString(_pos - 2, 3, ASTParseStream));
+                        throw new SyntaxException("try语句后找不到catch语句", PeekToken());
                     }
                     return astTryStat;
                 }
@@ -681,7 +681,7 @@ namespace ScriptRuntime.Core
                     var argsToken = PollToken();
                     if (argsToken.tokenType != TokenType.Part)
                     {
-                        throw new SyntaxException("函数定义语法不正确", ClipTokenString(_pos - 1, 2, ASTParseStream));
+                        throw new SyntaxException("函数定义语法不正确", argsToken);
                     }
                     var args = argsToken.raw.Replace(" ", "").Split(",", StringSplitOptions.RemoveEmptyEntries);
                     var block = PollToken();
@@ -730,7 +730,7 @@ namespace ScriptRuntime.Core
                         ast.NodeType != ASTNode.ASTNodeType.GlobalVariableDefination &&
                         ast.NodeType != ASTNode.ASTNodeType.FunctionDefinition)
                     {
-                        throw new SyntaxException("错误，未在语句结尾找到 ;   ", ClipTokenString(_pos < 6 ? 0 : _pos - 5, _pos + 1, ASTParseStream));
+                        throw new SyntaxException("错误，未在语句结尾找到 ;   ", PeekToken());
                     }
                 }
                 ret.Childrens.Add(ast);

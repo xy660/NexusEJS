@@ -13,6 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+using ScriptRuntime.Core;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -35,7 +36,11 @@ namespace ScriptRuntime.Runtime
     public class SyntaxException : ScriptBaseException
     {
         public object Tag = 0;
-        public SyntaxException(string message,string context) : base(message + "    上下文：" + context)
+        public SyntaxException(string message,Token token) : base(message + "  line:" + token.line)
+        {
+
+        }
+        public SyntaxException(string message, string tag) : base(message + "  Context:" + tag)
         {
 
         }
