@@ -46,6 +46,63 @@
 
 ---
 
+## I2C类
+
+### `I2C.init(sdaPin: number, sclPin: number, freq: number): I2CInstance`
+
+初始化I2C总线，返回I2C实例对象
+
+## I2CInstance接口
+
+I2C实例对象，用于操作I2C总线
+
+### 属性
+- **`sda: number`** - 只读属性，返回SDA引脚号
+- **`scl: number`** - 只读属性，返回SCL引脚号
+- **`freq: number`** - 只读属性，返回频率(Hz)
+
+### `I2CInstance.write(addr: number, data: number | Buffer | number[]): boolean`
+
+写入数据到I2C设备
+- **`addr`** - 设备地址(0x00-0x7F)
+- **`data`** - 要写入的数据(数字、Buffer或数组)
+- **返回值** - 是否成功
+
+### `I2CInstance.read(addr: number, length: number): number[]`
+
+从I2C设备读取数据
+- **`addr`** - 设备地址(0x00-0x7F)
+- **`length`** - 要读取的字节数(1-1024)
+- **返回值** - 读取到的数据数组
+
+### `I2CInstance.writeReg(addr: number, reg: number, data: number | Buffer | number[]): boolean`
+
+写入寄存器值
+- **`addr`** - 设备地址
+- **`reg`** - 寄存器地址
+- **`data`** - 要写入的数据(数字、Buffer或数组)
+- **返回值** - 是否成功
+
+### `I2CInstance.readReg(addr: number, reg: number, length: number): number[]`
+
+读取寄存器值
+- **`addr`** - 设备地址
+- **`reg`** - 寄存器地址
+- **`length`** - 要读取的字节数(1-1024)
+- **返回值** - 读取到的数据数组
+
+### `I2CInstance.scan(): number[]`
+
+扫描I2C总线上的设备
+- **返回值** - 所有发现的设备地址数组
+
+### `I2CInstance.close(): boolean`
+
+关闭I2C连接，释放资源
+- **返回值** - 是否成功
+
+---
+
 ## WiFi 类
 
 ### 连接管理
@@ -202,3 +259,4 @@
 - **回调参数对象**: 包含 POST 请求参数键值对
 - **返回值**: 回调函数的返回值会作为 HTTP 响应发送
 - **异常**: 参数类型错误时抛出错误
+
