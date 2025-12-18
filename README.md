@@ -46,6 +46,34 @@ In tests on ESP32, under a single task and without frequent object creation:
 4. Run `nejsc your_app.js` to generate `your_app.nejs`.
 5. Place it in the SPIFFS data folder named `entry.nejs`, then upload the FS Image and Firmware.
 
+## How to Contribute
+
+We welcome contributions to the NexusEJS project! Whether it's reporting bugs, suggesting features, improving documentation, or submitting code changes, your help is greatly appreciated.
+
+### Reporting Issues
+If you encounter any bugs, have questions, or would like to suggest new features, please open an issue on our GitHub repository.
+
+**Issue Tracker**: https://github.com/xy660/NexusEJS/issues
+
+### Submitting Code Changes
+To contribute code changes:
+1. Fork the repository on GitHub.
+2. Create a new branch for your changes.
+3. Make your modifications and ensure they follow the project's coding style.
+4. Test your changes thoroughly.
+5. Submit a pull request to the main repository.
+
+**Repository**: https://github.com/xy660/NexusEJS  
+**Pull Requests**: https://github.com/xy660/NexusEJS/pulls
+
+### Contribution Guidelines
+- Follow the existing code style and conventions.
+- Ensure your changes are well-documented.
+- Include tests for new functionality when applicable.
+- Keep pull requests focused and atomic.
+
+Thank you for helping improve NexusEJS!
+
 
 ---
 
@@ -88,4 +116,33 @@ NexusEJS追求确定性和透明性，因此我们的VM设计了：
 3. 编写你的js代码
 4. 运行`nejsc your_app.js` 得到`your_app.nejs`
 5. 将其放入SPIFFS的data文件中并命名为`entry.nejs` 然后上传FS Image和Firmware
+
+## 如何贡献
+
+欢迎为 NexusEJS 项目做出贡献！无论是报告 bug、建议新功能、改进文档，还是提交代码更改，我们都非常感谢您的帮助。
+
+### 报告问题
+如果您遇到任何 bug、有疑问，或想建议新功能，请在 GitHub 仓库中创建一个 issue。
+
+**问题跟踪**: https://github.com/xy660/NexusEJS/issues
+
+### 提交代码更改
+要贡献代码更改：
+1. 在 GitHub 上 Fork 本仓库。
+2. 为您的更改创建一个新分支。
+3. 进行修改，并确保它们符合项目的编码风格。
+4. 彻底测试您的更改。
+5. 向主仓库提交 pull request。
+
+**仓库地址**: https://github.com/xy660/NexusEJS  
+**拉取请求**: https://github.com/xy660/NexusEJS/pulls
+
+### 贡献指南
+- 遵循现有的代码风格和规范。
+- 确保您的更改有良好的文档说明。
+- 在适用情况下，为新功能包含测试。
+- 保持 pull request 的专注和原子性。
+
+感谢您帮助改进 NexusEJS！
+
 
