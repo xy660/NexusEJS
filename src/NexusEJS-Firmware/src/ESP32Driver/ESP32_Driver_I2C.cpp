@@ -1,3 +1,5 @@
+#ifdef ESP32_PLATFORM
+
 #include <ESP32Driver/Esp32Driver.h>
 
 #if ESP32_I2C_ENABLED
@@ -154,20 +156,6 @@ void ESP32_I2C_Init(VM* VMInstance){
                     esp_err_t ret = i2c_master_write(i2c_port, addr, bufinfo.data, bufinfo.length);
                     return CreateBooleanVariable(ret == ESP_OK);
                 }
-                else if(obj.find(L"value") != obj.end() && obj.find(L"offset") != obj.end()){
-                    // 数组对象
-                    uint32_t offset = (uint32_t)obj[L"offset"].content.number;
-                    uint32_t length = (uint32_t)obj[L"value"].content.ref->implement.arrayImpl.size();
-                    
-                    if(offset < length){
-                        std::vector<uint8_t> data(length - offset);
-                        for(size_t i = offset; i < length; i++){
-                            data[i-offset] = (uint8_t)obj[L"value"].content.ref->implement.arrayImpl[i].content.number;
-                        }
-                        esp_err_t ret = i2c_master_write(i2c_port, addr, data.data(), data.size());
-                        return CreateBooleanVariable(ret == ESP_OK);
-                    }
-                }
             }
             
             currentWorker->ThrowError(L"Data argument must be a number, Buffer, or array");
@@ -175,17 +163,36 @@ void ESP32_I2C_Init(VM* VMInstance){
         });
         
         // 读取数据
-        objContainer[L"read"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-            if(args[0].getContentType() != ValueType::NUM || args[1].getContentType() != ValueType::NUM){
-                currentWorker->ThrowError(L"Invalid argument type: expected (addr, length)");
+        objContainer[L"read"] = VM::CreateSystemFunc(3, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+            if(args[0].getContentType() != ValueType::OBJECT || args[1].getContentType() != ValueType::NUM || args[2].getContentType() != ValueType::NUM){
+                currentWorker->ThrowError(L"Invalid argument type: expected (buf ,addr, length)");
                 return VariableValue();
             }
+
+            auto bufid_it = args[0].content.ref->implement.objectImpl.find(L"bufid");
+            if(bufid_it == args[0].content.ref->implement.objectImpl.end()){
+                currentWorker->ThrowError(L"Invalid buffer object");
+                return VariableValue();
+            }
+            uint32_t bufid = (*bufid_it).second.content.number;
+
+            auto buf_info = GetByteBufferInfo(bufid);
             
-            uint8_t addr = (uint8_t)args[0].content.number;
-            size_t length = (size_t)args[1].content.number;
+            uint8_t addr = (uint8_t)args[1].content.number;
+            size_t length = (size_t)args[2].content.number;
             
             if(length <= 0 || length > 1024){
                 currentWorker->ThrowError(L"Read length must be between 1 and 1024");
+                return VariableValue();
+            }
+
+            if(!buf_info.data){
+                currentWorker->ThrowError(L"Invalid buffer object");
+                return VariableValue();
+            }
+
+            if(buf_info.length < length){
+                currentWorker->ThrowError(L"the buffer size too low");
                 return VariableValue();
             }
             
@@ -198,21 +205,17 @@ void ESP32_I2C_Init(VM* VMInstance){
             }
             
             // 读取数据
-            std::vector<uint8_t> buffer(length);
-            esp_err_t ret = i2c_master_read(i2c_port, addr, buffer.data(), length);
+            //std::vector<uint8_t> buffer(length);
+            esp_err_t ret = i2c_master_read(i2c_port, addr, buf_info.data, length);
             
             if(ret != ESP_OK){
                 return CreateBooleanVariable(false);
             }
             
-            // 创建数组返回
-            VMObject* arrayObj = currentWorker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
-            for(size_t i = 0; i < length; i++){
-                arrayObj->implement.arrayImpl.push_back(CreateNumberVariable(buffer[i]));
-            }
-            
-            return CreateReferenceVariable(arrayObj);
+            return CreateBooleanVariable(true);
         });
+
+
         
         // 写入寄存器
         objContainer[L"writeReg"] = VM::CreateSystemFunc(3, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
@@ -251,14 +254,14 @@ void ESP32_I2C_Init(VM* VMInstance){
                     }
                     data.insert(data.end(), bufinfo.data, bufinfo.data + bufinfo.length);
                 }
-                else if(obj.find(L"value") != obj.end() && obj.find(L"offset") != obj.end()){
-                    uint32_t offset = (uint32_t)obj[L"offset"].content.number;
-                    uint32_t arr_length = (uint32_t)obj[L"value"].content.ref->implement.arrayImpl.size();
-                    
-                    for(size_t i = offset; i < arr_length && i < offset + 256; i++){
-                        data.push_back((uint8_t)obj[L"value"].content.ref->implement.arrayImpl[i].content.number);
-                    }
+                else{
+                    currentWorker->ThrowError(L"invaild buffer object");
+                    return VariableValue();
                 }
+            }
+            else{
+                currentWorker->ThrowError(L"invaild argument");
+                return VariableValue();
             }
             
             esp_err_t ret = i2c_master_write(i2c_port, addr, data.data(), data.size());
@@ -266,7 +269,7 @@ void ESP32_I2C_Init(VM* VMInstance){
         });
         
         // 读取寄存器
-        objContainer[L"readReg"] = VM::CreateSystemFunc(3, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        objContainer[L"readReg"] = VM::CreateSystemFunc(4, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
             if(args[0].getContentType() != ValueType::NUM || 
                args[1].getContentType() != ValueType::NUM ||
                args[2].getContentType() != ValueType::NUM){
@@ -298,20 +301,30 @@ void ESP32_I2C_Init(VM* VMInstance){
             }
             
             // 读取数据
-            std::vector<uint8_t> buffer(length);
-            ret = i2c_master_read(i2c_port, addr, buffer.data(), length);
+            //std::vector<uint8_t> buffer(length);
+
+            auto bufid_it = args[0].content.ref->implement.objectImpl.find(L"bufid");
+            if(bufid_it == args[0].content.ref->implement.objectImpl.end()){
+                currentWorker->ThrowError(L"Invalid buffer object");
+                return VariableValue();
+            }
+            uint32_t bufid = (*bufid_it).second.content.number;
+
+            auto buf_info = GetByteBufferInfo(bufid);
+
+            if(buf_info.length < length){
+                currentWorker->ThrowError(L"Invalid length");
+                return VariableValue();
+            }
+
+            ret = i2c_master_read(i2c_port, addr, buf_info.data, length);
             
             if(ret != ESP_OK){
                 return CreateBooleanVariable(false);
             }
             
-            // 创建数组返回
-            VMObject* arrayObj = currentWorker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
-            for(size_t i = 0; i < length; i++){
-                arrayObj->implement.arrayImpl.push_back(CreateNumberVariable(buffer[i]));
-            }
             
-            return CreateReferenceVariable(arrayObj);
+            return CreateBooleanVariable(true);
         });
         
         // 扫描设备
@@ -368,10 +381,8 @@ void ESP32_I2C_Init(VM* VMInstance){
 
 #pragma endregion
 
-void ESP32_ExtensionIO_Init(VM* VMInstance){
-#if ESP32_I2C_ENABLED
-    ESP32_I2C_Init(VMInstance);
+
+
 #endif
-}
 
 #endif

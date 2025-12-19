@@ -16,7 +16,9 @@
 
 #define ESP32_I2C_ENABLED 1
 
-#define ESP32_SPI_ENABLED 0 //待开发
+#define ESP32_SPI_ENABLED 1
+
+#define ESP32_PWM_ENALBED 0
 
 #define MAX_PWM_CHANNELS 16
 #define ANALOG_READ_RESOLUTION 1024
@@ -30,7 +32,14 @@ extern VMObject* pwmChannelObjects;
 void ESP32_WiFiPlatformApi_Init(VM* VMInstance);
 #endif
 
-void ESP32_ExtensionIO_Init(VM* VMInstance);
+#if ESP32_I2C_ENABLED
+void ESP32_I2C_Init(VM* VMInstance);
+#endif
+
+#if ESP32_SPI_ENABLED
+void ESP32_SPI_Init(VM* VMInstance);
+#endif
+
 void InitPWMChannels();
 void ESP32_Platform_Init();
 void ESP32Driver_Init(VM* VMInstance);

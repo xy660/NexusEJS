@@ -495,6 +495,16 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 
 	//析构
 
+	vmo->implement.objectImpl[L"close"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		printf("ByteBuffer.close id:%d\n", id);
+		auto& info = bindedBytebuffer[id];
+		platform.MemoryFree(info.data);
+		bindedBytebuffer.erase(id);
+		thisValue->implement.objectImpl.erase(L"finalize"); //删掉析构函数让GC可直接回收
+		return VariableValue();
+		});
+
 	vmo->implement.objectImpl[L"finalize"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
 		printf("ByteBuffer.finalize id:%d\n", id);
@@ -964,9 +974,9 @@ void BuildinStdlib_Init()
 		uint8_t* nejsBuffer = platform.ReadFile(args[0].content.ref->implement.stringImpl,&fileSize);
 		
 		uint16_t id = currentWorker->VMInstance->LoadPackedProgram(nejsBuffer, fileSize);
-
-		platform.MemoryFree(nejsBuffer);
 		
+		platform.MemoryFree(nejsBuffer); //释放读取文件分配的内存
+
 		std::wstring entryName = L"main_entry";
 		return currentWorker->VMInstance->InitAndCallEntry(entryName, id);
 

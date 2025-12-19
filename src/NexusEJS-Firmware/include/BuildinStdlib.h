@@ -23,6 +23,8 @@ void BuildinStdlib_Init();
 
 void BuildinStdlib_Destroy();
 
+VMObject* CreateByteBufferObject(uint32_t size, VMWorker* worker);
+
 void RegisterSystemFunc(std::wstring name, uint8_t argCount, SystemFuncDef implement);
 
 

@@ -6,6 +6,8 @@
 
 #include "ESP32Driver/Esp32Driver.h"
 
+#if ESP32_PWM_ENALBED
+
 uint8_t pwmChannelObjectsBuffer[sizeof(VMObject) * MAX_PWM_CHANNELS];
 
 VMObject* pwmChannelObjects = (VMObject*)pwmChannelObjectsBuffer;
@@ -42,5 +44,7 @@ void InitPWMChannels(){
         });
     }
 }
+
+#endif
 
 #endif

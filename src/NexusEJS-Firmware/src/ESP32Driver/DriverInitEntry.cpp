@@ -224,6 +224,8 @@ void ESP32_GpioClass_Init(VM* VMInstance){
         return CreateNumberVariable(digitalRead(pin));
     });
     
+
+#if ESP32_PWM_ENALBED
     VMObject* pwmChannelsArray = VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
     InitPWMChannels();
     //初始化通道对象数组后压入绑定到脚本的API数组
@@ -232,7 +234,7 @@ void ESP32_GpioClass_Init(VM* VMInstance){
         pwmChannelsArray->implement.arrayImpl.push_back(CreateReferenceVariable(&pwmChannelObjects[i]));
     }
     gpioClass->implement.objectImpl[L"pwmChannels"] = CreateReferenceVariable(pwmChannelsArray);
-
+#endif
 
 
     std::wstring className = L"Gpio";
@@ -242,8 +244,13 @@ void ESP32_GpioClass_Init(VM* VMInstance){
 
 void ESP32_PlatformStdlibImpl_Init(VM* VMInstance){
     ESP32_GpioClass_Init(VMInstance);
+#if ESP32_I2C_ENABLED
+    ESP32_I2C_Init(VMInstance);
+#endif
 
-    ESP32_ExtensionIO_Init(VMInstance);
+#if ESP32_SPI_ENABLED
+    ESP32_SPI_Init(VMInstance);
+#endif
 
 #if ESP32_WIFI_API_ENABLED
     ESP32_WiFiPlatformApi_Init(VMInstance);
