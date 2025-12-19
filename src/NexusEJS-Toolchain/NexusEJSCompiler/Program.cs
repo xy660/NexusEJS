@@ -21,8 +21,8 @@ namespace CompileLab
                     }
                 }
                 var code = File.ReadAllText(args[0].Replace("\"", ""));
-                code = StringUtils.ClearMultiSpace(code);
-                code = StringUtils.RemoveSingleLineComments(code);
+                //code = StringUtils.ClearMultiSpace(code);
+                code = StringUtils.RemoveComments(code);
                 var tokens = Lexer.SplitTokens(code);
                 ASTNode ast = Parser.BuildASTByTokens(tokens);
 

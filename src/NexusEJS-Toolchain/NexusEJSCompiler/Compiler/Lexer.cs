@@ -245,6 +245,10 @@ namespace ScriptRuntime.Core
             {
                 return (new Token(":", TokenType.Operator) { line = line }, jmp + 1, line);
             }
+            else if (cur == '?')
+            {
+                return (new Token("?", TokenType.Operator) { line = line }, jmp + 1, line);
+            }
             else
             {
                 throw new SyntaxException($"未知字符: {cur}", syn);
@@ -372,7 +376,7 @@ namespace ScriptRuntime.Core
                 }
 
                 // 处理字符串开始/结束
-                if ((currentChar == '"' || currentChar == '\'') && !inString)
+                if ((currentChar == '"' || currentChar == '\'') && !inString && !inSingleLineComment && !inComment)
                 {
                     inString = true;
                     stringStartChar = currentChar;

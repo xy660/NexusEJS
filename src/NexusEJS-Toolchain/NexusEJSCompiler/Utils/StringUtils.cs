@@ -112,17 +112,49 @@ static class StringUtils
         }
         return string.Empty;
     }
-    public static List<string> SplitArgSyntax(string raw)
+
+
+    public static List<Token> SplitArgSyntax(string raw,uint lineBase)
     {
         Stack<char> bracketStack = new Stack<char>(); //括号平衡栈
         bool inString = false;
         StringBuilder sb = new StringBuilder();
-        var ret = new List<string>();
+        var ret = new List<Token>();
+        uint line = lineBase;
+        uint prev = line;
+        bool needRecPrev = false;
         for (int i = 0; i < raw.Length; i++)
         {
+            if (needRecPrev && raw[i] != '\n' && raw[i] != '\r')
+            {
+                needRecPrev = false;
+                string token = sb.ToString();
+                int headLineCount = 0;
+                
+                for(int j = 0;j < token.Length; j++)
+                {
+                    if(token[j] == '\n')
+                        headLineCount++;
+
+                    if (token[j] != '\n' && token[j] != '\r' && token[j] != '\t' && token[j] != ' ')
+                    { 
+                        token = token.Substring(j);
+                        break;
+                    }
+                }
+                
+                ret.Add(new Token(token, TokenType.Idfefinder) { line = (uint)(prev + headLineCount) });
+                prev = line;
+                sb.Clear();
+            }
+
             if (raw[i] == '"')
             {
                 inString = !inString;
+            }
+            else if (raw[i] == '\n')
+            {
+                line++;
             }
             else if (bracket.ContainsKey(raw[i]) && !inString)
             {
@@ -137,8 +169,8 @@ static class StringUtils
             }
             if (bracketStack.Count == 0 && raw[i] == ',' && !inString) //寻找到末尾
             {
-                ret.Add(sb.ToString());
-                sb.Clear();
+                needRecPrev = true;
+                
             }
             else
             {
@@ -150,7 +182,7 @@ static class StringUtils
             }
         }
         if (sb.Length > 0)
-            ret.Add(sb.ToString());
+            ret.Add(new Token(sb.ToString(), TokenType.Idfefinder) { line = prev });
 
         return ret;
     }
@@ -206,18 +238,20 @@ static class StringUtils
     }
 
 
-    public static string RemoveSingleLineComments(string code)
+    public static string RemoveComments(string code)
     {
         if (string.IsNullOrEmpty(code))
             return code;
 
         StringBuilder result = new StringBuilder();
         StringBuilder currentLine = new StringBuilder();
-        bool inString = false;      // 是否在字符串中
-        bool inChar = false;        // 是否在字符字面量中
-        bool inVerbatimString = false; // 是否在逐字字符串中
-        bool escapeNext = false;    // 下一个字符是否需要转义
-        int commentStartIndex = -1; // 注释开始位置
+
+        bool inString = false;               // 是否在普通字符串中
+        bool inChar = false;                 // 是否在字符字面量中
+        bool inVerbatimString = false;       // 是否在逐字字符串中
+        bool escapeNext = false;             // 下一个字符是否需要转义
+        bool inSingleLineComment = false;    // 是否在单行注释中
+        bool inMultiLineComment = false;     // 是否在多行注释中
 
         for (int i = 0; i < code.Length; i++)
         {
@@ -229,6 +263,63 @@ static class StringUtils
             {
                 currentLine.Append(current);
                 escapeNext = false;
+                continue;
+            }
+
+            // 处理注释
+            if (!inString && !inChar && !inVerbatimString && !inMultiLineComment && !inSingleLineComment)
+            {
+                // 检查多行注释开始
+                if (current == '/' && next == '*')
+                {
+                    inMultiLineComment = true;
+                    i++; // 跳过*字符
+                    continue;
+                }
+
+                // 检查单行注释开始
+                if (current == '/' && next == '/')
+                {
+                    inSingleLineComment = true;
+                    i++; // 跳过第二个/字符
+                    continue;
+                }
+            }
+
+            // 处理多行注释结束
+            if (inMultiLineComment && current == '*' && next == '/')
+            {
+                inMultiLineComment = false;
+                i++; // 跳过/字符
+                continue;
+            }
+
+            // 单行注释在遇到换行时结束
+            if (inSingleLineComment && (current == '\n' || current == '\r'))
+            {
+                inSingleLineComment = false;
+                // 继续处理，不continue，让换行符正常被处理
+            }
+
+            // 如果在注释中，跳过当前字符
+            if (inSingleLineComment || inMultiLineComment)
+            {
+                // 如果是单行注释结束的换行符，需要添加到结果中
+                if (inSingleLineComment && (current == '\n' || current == '\r'))
+                {
+                    // 处理换行符
+                    result.Append(current);
+
+                    // 处理Windows风格的换行符
+                    if (current == '\r' && next == '\n')
+                    {
+                        result.Append(next);
+                        i++;
+                    }
+
+                    // 清空当前行
+                    currentLine.Clear();
+                }
                 continue;
             }
 
@@ -258,8 +349,8 @@ static class StringUtils
                     // 逐字字符串中两个连续引号表示一个引号字符
                     if (next == '"')
                     {
-                        currentLine.Append(next);
-                        i++; // 跳过下一个引号
+                        // 添加第一个引号（已经添加过了）
+                        // 跳过处理第二个引号
                     }
                     else
                     {
@@ -272,76 +363,45 @@ static class StringUtils
             // 检查是否进入字符串/字符字面量
             if (current == '"')
             {
+                // 检查是否是逐字字符串
                 if (i > 0 && code[i - 1] == '@')
                 {
                     inVerbatimString = true;
-                    currentLine.Append(current);
                 }
                 else
                 {
                     inString = true;
-                    currentLine.Append(current);
                 }
-                continue;
+                currentLine.Append(current);
             }
             else if (current == '\'')
             {
                 inChar = true;
                 currentLine.Append(current);
-                continue;
             }
-
-            // 检查注释开始
-            if (current == '/' && next == '/' && commentStartIndex == -1)
+            else
             {
-                commentStartIndex = i;
-                // 跳过注释的第二个斜杠
-                i++;
-                continue;
-            }
-
-            // 如果不在注释中，添加字符到当前行
-            if (commentStartIndex == -1)
-            {
+                // 普通字符
                 currentLine.Append(current);
             }
 
-            // 检查行结束（换行符）
-            if (current == '\r' || current == '\n')
+            // 处理换行符
+            if (current == '\n' || current == '\r')
             {
-                // 如果这一行有注释，只添加注释之前的内容
-                if (commentStartIndex != -1)
-                {
-                    // 注释开始前的内容已经添加到currentLine中
-                    result.Append(currentLine.ToString());
-                    commentStartIndex = -1;
-                }
-                else
-                {
-                    result.Append(currentLine.ToString());
-                }
+                result.Append(currentLine.ToString());
+                currentLine.Clear();
 
-                // 添加换行符本身
-                result.Append(current);
-
-                // 处理Windows风格的换行符 \r\n
+                // 处理Windows风格的换行符
                 if (current == '\r' && next == '\n')
                 {
                     result.Append(next);
                     i++;
                 }
-
-                currentLine.Clear();
             }
         }
 
-        // 处理最后一行（可能没有换行符）
-        if (commentStartIndex != -1)
-        {
-            // 最后一行有注释，只添加注释之前的内容
-            result.Append(currentLine.ToString());
-        }
-        else
+        // 添加最后一行（如果没有换行符结尾）
+        if (currentLine.Length > 0)
         {
             result.Append(currentLine.ToString());
         }

@@ -144,12 +144,13 @@ namespace ScriptRuntime.Core
 
         static ASTNode ProcessObjectDefination(Token part)
         {
-            var sp = StringUtils.SplitArgSyntax(part.raw);
+            var sp = StringUtils.SplitArgSyntax(part.raw,part.line);
+            //var sp = SplitTokens(part.raw);
             uint partLine = part.line;
             var retn = new ASTNode(ASTNode.ASTNodeType.Object, string.Empty,partLine);
             foreach (var item in sp)
             {
-                var tokens = SplitTokens(item,partLine);
+                var tokens = SplitTokens(item.raw,item.line);
 
                 //对方法类型成员特殊处理（{func(){}}）
                 //第二个token是括号就说明是方法字面量
@@ -198,12 +199,12 @@ namespace ScriptRuntime.Core
             }
             else if (val.tokenType == TokenType.IndexLabel) // 数组字面量
             {
-                var arr = StringUtils.SplitArgSyntax(val.raw);
+                var arr = StringUtils.SplitArgSyntax(val.raw, val.line);
                 uint arrTokenLine = val.line;
                 ASTNode ret = new ASTNode(ASTNode.ASTNodeType.Array, string.Empty,arrTokenLine);
                 foreach (var element in arr)
                 {
-                    ret.Childrens.Add(BuildASTByTokens(SplitTokens(element,arrTokenLine)).Childrens[0]);
+                    ret.Childrens.Add(BuildASTByTokens(SplitTokens(element.raw,element.line)).Childrens[0]);
                 }
                 return ret;
             }
@@ -335,11 +336,11 @@ namespace ScriptRuntime.Core
                     var funcAST = new ASTNode(ASTNode.ASTNodeType.CallFunction, string.Empty,PeekToken().line);
                     funcAST.Childrens.Add(left);
                     var argsToken = PollToken();
-                    var args = StringUtils.SplitArgSyntax(argsToken.raw);
+                    var args = StringUtils.SplitArgSyntax(argsToken.raw, argsToken.line);
                     uint argsTokenLine = argsToken.line;
                     foreach (var arg in args)
                     {
-                        var argAST = BuildASTByTokens(SplitTokens(arg,argsTokenLine));
+                        var argAST = BuildASTByTokens(SplitTokens(arg.raw,arg.line));
                         if (argAST.Childrens.Count != 1)
                         {
                             throw new SyntaxException("函数调用参数内出现多重解析的表达式", argsToken);
@@ -388,9 +389,9 @@ namespace ScriptRuntime.Core
                     PollToken();
                     
                     ASTNode funcDef = new ASTNode(ASTNode.ASTNodeType.FunctionDefinition, "",left.line);
-                    foreach (var arg in SplitArgSyntax(left.raw))
+                    foreach (var arg in SplitArgSyntax(left.raw, left.line))
                     {
-                        funcDef.Childrens.Add(new ASTNode(ASTNode.ASTNodeType.Identifier, arg,left.line));
+                        funcDef.Childrens.Add(new ASTNode(ASTNode.ASTNodeType.Identifier, arg.raw ,arg.line));
                     }
 
                     var right = PeekToken();
@@ -730,6 +731,7 @@ namespace ScriptRuntime.Core
                         ast.NodeType != ASTNode.ASTNodeType.GlobalVariableDefination &&
                         ast.NodeType != ASTNode.ASTNodeType.FunctionDefinition)
                     {
+                        var tok = PeekToken();
                         throw new SyntaxException("错误，未在语句结尾找到 ;   ", PeekToken());
                     }
                 }
