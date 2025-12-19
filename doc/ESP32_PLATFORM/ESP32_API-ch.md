@@ -61,21 +61,21 @@ I2C实例对象，用于操作I2C总线
 - **`scl: number`** - 只读属性，返回SCL引脚号
 - **`freq: number`** - 只读属性，返回频率(Hz)
 
-### `I2CInstance.write(addr: number, data: number | Buffer | number[]): boolean`
+### `I2CInstance.write(addr: number, data: number | Buffer): boolean`
 
 写入数据到I2C设备
 - **`addr`** - 设备地址(0x00-0x7F)
 - **`data`** - 要写入的数据(数字、Buffer或数组)
 - **返回值** - 是否成功
 
-### `I2CInstance.read(addr: number, length: number): number[]`
+### `I2CInstance.read(buf : Buffer,addr: number, length: number): boolean`
 
 从I2C设备读取数据
 - **`addr`** - 设备地址(0x00-0x7F)
 - **`length`** - 要读取的字节数(1-1024)
 - **返回值** - 读取到的数据数组
 
-### `I2CInstance.writeReg(addr: number, reg: number, data: number | Buffer | number[]): boolean`
+### `I2CInstance.writeReg(addr: number, reg: number, data: number | Buffer): boolean`
 
 写入寄存器值
 - **`addr`** - 设备地址
@@ -83,7 +83,7 @@ I2C实例对象，用于操作I2C总线
 - **`data`** - 要写入的数据(数字、Buffer或数组)
 - **返回值** - 是否成功
 
-### `I2CInstance.readReg(addr: number, reg: number, length: number): number[]`
+### `I2CInstance.readReg(addr: number, reg: number, length: number,buf : Buffer): boolean`
 
 读取寄存器值
 - **`addr`** - 设备地址
@@ -259,4 +259,5 @@ I2C实例对象，用于操作I2C总线
 - **回调参数对象**: 包含 POST 请求参数键值对
 - **返回值**: 回调函数的返回值会作为 HTTP 响应发送
 - **异常**: 参数类型错误时抛出错误
+
 
