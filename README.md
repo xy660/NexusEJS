@@ -4,10 +4,6 @@
 ![ESP32](https://img.shields.io/badge/Now%20Support-ESP32-red?logo=espressif)
 [![STM32](https://img.shields.io/badge/🔜%20Future%20Roadmap-STM32%20Series-03234B?logo=stmicroelectronics)]()
 
-[![GC Mark-Sweep](https://img.shields.io/badge/🧹%20GC%20-Support-success)]()
-[![Closures](https://img.shields.io/badge/🔗%20Closures%20-Support-success)]()
-[![Memory](https://img.shields.io/badge/💾%20Memory-~55KB-brightgreen)]()
-
 [中文README](#readme-cn)
 
 # NexusEJS
