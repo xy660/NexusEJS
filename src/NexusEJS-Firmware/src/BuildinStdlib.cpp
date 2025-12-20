@@ -981,6 +981,8 @@ void BuildinStdlib_Init()
 		return currentWorker->VMInstance->InitAndCallEntry(entryName, id);
 
 		});
+	
+	MathClassInit();
 
 	VMObject* NumberClassObject = CreateStaticObject(ValueType::OBJECT);
 	NumberClassObject->implement.objectImpl[L"parseFloat"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
@@ -1058,3 +1060,4 @@ VariableValue* SystemGetSymbol(std::wstring& symbol)
 	
 	return ret;
 }
+
