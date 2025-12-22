@@ -14,7 +14,7 @@ let obj = {
         this.value++;
     }
 };
-server.mapGet("/inc",()=>{
+server.mapGet("/inc",ctx=>{
     println(_clos); //print the closure object to serial
     cnt++; //The cnt variable is a value copy within the closure's environment object; modifications do not affect the outer scope
     obj.inc(); //The obj variable captures a reference; modifying the object affects the outer scope
