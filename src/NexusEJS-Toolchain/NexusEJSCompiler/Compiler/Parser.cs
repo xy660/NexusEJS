@@ -66,6 +66,10 @@ namespace ScriptRuntime.Core
             // 相等性
             {"==", 10},
             {"!=", 10},
+
+            //补偿严格相等，但是默认和==一样行为，仅作兼容性
+            {"===", 10},
+            {"!==", 10},
             
             // 按位与
             {"&", 9},
@@ -111,7 +115,7 @@ namespace ScriptRuntime.Core
             { new List<string> {"+", "-"}},      // 加减
             { new List<string> {"<<", ">>"}},    // 位移
             { new List<string> {"<", "<=", ">", ">="}}, // 关系运算符
-            { new List<string> {"==", "!="}},    // 相等性
+            { new List<string> {"==", "!=","===","!=="}},    // 相等性
             {  new List<string> {"&"}},           // 按位与
             {  new List<string> {"^"}},           // 按位异或
             {  new List<string> {"|"}},           // 按位或

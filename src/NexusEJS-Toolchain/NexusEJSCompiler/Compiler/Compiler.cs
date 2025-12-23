@@ -46,7 +46,7 @@ namespace ScriptRuntime.Core
 
     class Compiler
     {
-        public static ushort Version = 3;
+        public static ushort Version = 4;
         enum OpCode
         {
             //运算符
@@ -150,8 +150,10 @@ namespace ScriptRuntime.Core
     {"/", OpCode.DIV},
 
     // 比较运算符
-    {"==", OpCode.EQUAL},
+    {"==", OpCode.EQUAL}, //严格比较（NexusEJS专门的特性）
     {"!=", OpCode.NOT_EQUAL},
+    {"===", OpCode.EQUAL}, //这两个为了兼容传统js代码，但实际上与==一样都是严格比较
+    {"!==", OpCode.NOT_EQUAL},
     {"<=", OpCode.LOWER_EQUAL},
     {">=", OpCode.GREATER_EQUAL},
     {"<", OpCode.LOWER},
@@ -426,14 +428,17 @@ namespace ScriptRuntime.Core
                 ms.Write(BitConverter.GetBytes(Version));
                 
                 //写入包名
-                ms.Write(BitConverter.GetBytes((ushort)packageName.Length));
-                ms.Write(Encoding.Unicode.GetBytes(packageName));
+                var packageNameData = Encoding.UTF8.GetBytes(packageName);
+                ms.Write(BitConverter.GetBytes((ushort)packageNameData.Length));
+                ms.Write(packageNameData);
 
+                //写入常量字符串表
                 ms.Write(BitConverter.GetBytes(ConstStringPool.Count));
                 foreach(var cstr in ConstStringPool)
                 {
-                    ms.Write(BitConverter.GetBytes(cstr.Length));
-                    ms.Write(Encoding.Unicode.GetBytes(cstr));
+                    var strData = Encoding.UTF8.GetBytes(cstr);
+                    ms.Write(BitConverter.GetBytes(strData.Length));
+                    ms.Write(strData);
                 }
 
                 foreach (var func in functions)
