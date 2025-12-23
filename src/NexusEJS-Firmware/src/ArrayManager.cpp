@@ -292,7 +292,7 @@ void ArrayManager_Init() {
             return true;
         });
 
-        CreateReferenceVariable(newArray);
+        return CreateReferenceVariable(newArray);
         },1);
 
     // find - 查找元素
@@ -540,4 +540,5 @@ VariableValue GetArraySymbol(std::string& symbol,VMObject* owner) {
 	ret.thisValue = owner;
 	platform.MutexUnlock(ArraySymbolMapLock);
 	return ret;
+
 }
