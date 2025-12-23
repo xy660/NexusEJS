@@ -1,8 +1,8 @@
 #pragma once
 
-#define VM_VERSION_NUMBER 3
+#define VM_VERSION_NUMBER 4
 
-#define VM_VERSION_STR L"V1.2.2"
+#define VM_VERSION_STR "V1.3.0"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
@@ -34,7 +34,7 @@ public:
 	std::vector<VariableValue> localVariables; //栈帧变量表
 	std::vector<uint16_t> localVarNames; //名称映射
 	std::vector<ScopeFrame> scopeStack; //作用域链
-	std::unordered_map<std::wstring, VariableValue> functionEnvSymbols; //函数环境符号表
+	std::unordered_map<std::string, VariableValue> functionEnvSymbols; //函数环境符号表
 	//std::unordered_map<uint16_t, uint16_t> variableNameMapper; //<str_id,var_id>映射表
 
 
@@ -70,7 +70,7 @@ public:
 	
 
 	//作用域内的变量
-	//std::unordered_map<std::wstring, VariableValue> scopeVariables;
+	//std::unordered_map<std::string, VariableValue> scopeVariables;
 	
 };
 
@@ -86,9 +86,9 @@ public:
 
 	uint32_t currentWorkerId; //当前工作id
 
-	VariableValue Init(ByteCodeFunction& entry_func, std::vector<VariableValue>& args, std::unordered_map <std::wstring, VariableValue>* env = NULL);
+	VariableValue Init(ByteCodeFunction& entry_func, std::vector<VariableValue>& args, std::unordered_map <std::string, VariableValue>* env = NULL);
 
-	void ThrowError(std::wstring messageString);
+	void ThrowError(std::string messageString);
 
 	VM* VMInstance;
 
@@ -124,9 +124,11 @@ public:
 	std::unordered_map<uint16_t, PackageContext> loadedPackages;
 
 	//VMWorker中包含了正在执行的函数，需要确保this指针不会以外失效
-	std::vector<std::unique_ptr<VMWorker>> workers; 
+	std::vector<VMWorker*> workers; 
 
 	std::vector<ScriptFunction*> ScriptFunctionObjects; //存储分配出来的ScriptFunction对象(目前只存Local类型的)
+
+	static std::vector<ScriptFunction*> SystemFunctionObjects;
 
 	GC* currentGC;
 	//存储worker上下文
@@ -134,7 +136,7 @@ public:
 	void* globalSymbolLock;
 
 
-	std::unordered_map<std::wstring, VariableValue> globalSymbols;
+	std::unordered_map<std::string, VariableValue> globalSymbols;
 	std::unordered_map<uint32_t, TaskContext> tasks;
 	
 
@@ -142,24 +144,26 @@ public:
 
 	~VM();
 
-	VariableValue* getGlobalSymbol(std::wstring& symbol);
+	VariableValue* getGlobalSymbol(std::string& symbol);
 
-	void storeGlobalSymbol(std::wstring& symbol, VariableValue& value);
+	void storeGlobalSymbol(std::string& symbol, VariableValue& value);
 
 	static VariableValue CreateSystemFunc(uint8_t argCount, SystemFuncDef implement);
 
 	void VM_UnhandledException(VMObject* exceptionObject, VMWorker* worker);
 
-	//void RegisterSystemFunc(std::wstring name, uint8_t argCount, SystemFuncDef implement);
+	//void RegisterSystemFunc(std::string name, uint8_t argCount, SystemFuncDef implement);
 
 	uint16_t LoadPackedProgram(uint8_t* data, uint32_t length);
 	void UnloadAllPackage();
-	VariableValue* GetBytecodeFunctionSymbol(uint16_t id, std::wstring& name);
-	PackageContext* GetPackageByName(std::wstring& name);
+	VariableValue* GetBytecodeFunctionSymbol(uint16_t id, std::string& name);
+	PackageContext* GetPackageByName(std::string& name);
 
-	VariableValue InitAndCallEntry(std::wstring& name, uint16_t id);
+	VariableValue InitAndCallEntry(std::string& name, uint16_t id);
 
 	VariableValue InvokeCallbackWithWorker(VMWorker* worker, VariableValue& function, std::vector<VariableValue>& args, VMObject* thisValue);
+
+	VariableValue InvokeCallbackWithTempWorker(VMWorker* worker, VariableValue& function, std::vector<VariableValue>& args, VMObject* thisValue);
 
 	//只能接收字节码函数，请勿传入原生函数
 	VariableValue InvokeCallback(VariableValue& code, std::vector<VariableValue>& args,VMObject* thisValue);
@@ -168,4 +172,6 @@ public:
 	static void InitSingleInstanceManager();
 
 	static void DestroySingleInstanceManager();
+
+	static void CleanUp();
 };

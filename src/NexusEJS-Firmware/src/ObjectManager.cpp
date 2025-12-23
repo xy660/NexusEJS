@@ -3,10 +3,10 @@
 //ARRAY对象符号表
 //返回方法包装的VMObject对象，或
 
-std::unordered_map<std::wstring, VariableValue> object_buildin_symbol_map;
+std::unordered_map<std::string, VariableValue> object_buildin_symbol_map;
 std::vector<ScriptFunction*> objectman_script_function_alloc;
 
-void ObjectSymbolFuncAdd(std::wstring name, SystemFuncDef func, uint16_t argumentCount) {
+void ObjectSymbolFuncAdd(std::string name, SystemFuncDef func, uint16_t argumentCount) {
 	VariableValue fnref;
 	fnref.varType = ValueType::FUNCTION;
 	fnref.content.function = (ScriptFunction*)platform.MemoryAlloc(sizeof(ScriptFunction));
@@ -17,7 +17,7 @@ void ObjectSymbolFuncAdd(std::wstring name, SystemFuncDef func, uint16_t argumen
 	object_buildin_symbol_map[name] = fnref;
 }
 
-VariableValue GetObjectBuildinSymbol(std::wstring& symbol, VMObject* owner) {
+VariableValue GetObjectBuildinSymbol(std::string& symbol, VMObject* owner) {
 	if (object_buildin_symbol_map.find(symbol) == object_buildin_symbol_map.end()) {
 		return VariableValue(); //如果不存在就返回NULLREF，避免破坏
 	}
@@ -28,8 +28,8 @@ VariableValue GetObjectBuildinSymbol(std::wstring& symbol, VMObject* owner) {
 
 void ObjectManager_Init()
 {
-	//SymbolFuncAdd(L"keys")
-	ObjectSymbolFuncAdd(L"get", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	//SymbolFuncAdd("keys")
+	ObjectSymbolFuncAdd("get", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (thisValue->type != ValueType::OBJECT) {
 			return VariableValue();
 		}

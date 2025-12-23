@@ -30,15 +30,15 @@ void setup()
 
     Serial.println("platform inited");
 
-    RegisterSystemFunc(L"println", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
+    RegisterSystemFunc("println", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
     {
     Serial.print("print=>");
-    Serial.println(wstring_to_string(args[0].ToString()).c_str());
+    Serial.println(args[0].ToString().c_str());
     VariableValue ret;
     return ret; 
 });
 
-    RegisterSystemFunc(L"delay", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
+    RegisterSystemFunc("delay", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
     {
     
     vTaskDelay((uint32_t)args[0].content.number / portTICK_PERIOD_MS);
@@ -46,7 +46,7 @@ void setup()
     return VariableValue(); 
     });
     
-    RegisterSystemFunc(L"gc", 0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    RegisterSystemFunc("gc", 0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
     
     VariableValue ret;
     Serial.printf("memory:%.1f %\n",(1.0-(float)ESP.getFreeHeap()/ESP.getHeapSize())*100);
@@ -76,13 +76,13 @@ void setup()
     }
     Serial.println("loading success! calling entry..");
 
-    std::wstring name = L"main_entry";
+    std::string name = "main_entry";
     uint32_t start = millis();
     auto ret = vm.InitAndCallEntry(name,packageId);
 
     Serial.printf("time => %d\n",millis() - start);
     Serial.print("return => ");
-    Serial.printf("%s\n",wstring_to_string(ret.ToString()).c_str());
+    Serial.printf("%s\n",ret.ToString().c_str());
 
     while(true);
 }

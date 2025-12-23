@@ -42,58 +42,58 @@ ValueType::IValueType VariableValue::getContentType()
     }
 }
 
-std::wstring nexus_d2ws(double d, int prec = 6) {
-    std::wostringstream wss;
+std::string nexus_d2str(double d, int prec = 6) {
+    std::ostringstream wss;
     wss << std::fixed << std::setprecision(prec) << d;
-    std::wstring s = wss.str();
+    std::string s = wss.str();
 
-    s.erase(s.find_last_not_of(L'0') + 1);
-    if (s.back() == L'.') s.pop_back();
+    s.erase(s.find_last_not_of('0') + 1);
+    if (s.back() == '.') s.pop_back();
 
     return s;
 }
 
-std::wstring VariableValue::ToString(uint16_t depth)
+std::string VariableValue::ToString(uint16_t depth) const
 {
     if (depth > ToStringDepth) {
-        return L"<max_depth>";
+        return "<max_depth>";
     }
 
-    VariableValue* raw = getRawVariable();
+    const VariableValue* raw = getRawVariableConst();
     if(raw->varType == ValueType::NUM) {
-        return nexus_d2ws(raw->content.number);
+        return nexus_d2str(raw->content.number);
     }
     else if(raw->varType == ValueType::BOOL) {
-        return raw->content.boolean ? L"true" : L"false";
+        return raw->content.boolean ? "true" : "false";
     }
     else if(raw->varType == ValueType::PTR) {
-        return std::to_wstring(raw->content.ptr);
+        return std::to_string(raw->content.ptr);
     }
     else if (raw->varType == ValueType::REF) {
         return raw->content.ref->ToString(depth); //depth直接传入，因为引用不增加深度
     }
     else if (raw->varType == ValueType::FUNCTION) {
-        return L"<func>";
+        return "<func>";
     }
     else if (raw->varType == ValueType::NULLREF) {
-        return L"null";
+        return "null";
     }
-    return L"no-support-var-str";
+    return "no-support-var-str";
 }
 
-static void __objectStringHelper(std::unordered_map<std::wstring,VariableValue>* val,std::wostringstream& stream,uint16_t depth) {
-    stream << L"{";
+static void __objectStringHelper(std::unordered_map<std::string,VariableValue>* val,std::ostringstream& stream,uint16_t depth) {
+    stream << "{";
     int index = 0;
     for (auto& pair : *val) {
-        if (index != 0)stream << L',';
+        if (index != 0)stream << ',';
 
-        stream << L'\"' << pair.first << L"\":";
+        stream << '\"' << pair.first << "\":";
         
         VariableValue* value = pair.second.getRawVariable();
         if (value->varType == ValueType::REF &&
             value->content.ref->type == ValueType::STRING) {
             //字符串加上引号
-            stream << L'\"' << value->ToString(depth + 1) << L'\"';
+            stream << '\"' << value->ToString(depth + 1) << '\"';
         }
         else {
             stream << value->ToString(depth + 1);
@@ -102,14 +102,14 @@ static void __objectStringHelper(std::unordered_map<std::wstring,VariableValue>*
         index++;
     }
 
-    stream << L'}';
+    stream << '}';
 }
 
-std::wstring VMObject::ToString(uint16_t depth) {
+std::string VMObject::ToString(uint16_t depth) {
     switch (type)
     {
     case ValueType::NULLREF:
-        return L"null";
+        return "null";
         break;
     case ValueType::CONTEXT:
         break;
@@ -119,7 +119,7 @@ std::wstring VMObject::ToString(uint16_t depth) {
         break;
     case ValueType::STRING:
     {
-        //std::wstring* str = std::get_if<std::wstring>(&implement);
+        //std::string* str = std::get_if<std::string>(&implement);
         return implement.stringImpl;
     }
     case ValueType::BOOL: //值类型不会出现在这里
@@ -129,30 +129,30 @@ std::wstring VMObject::ToString(uint16_t depth) {
         //std::vector<VariableValue>* arr = std::get_if<std::vector<VariableValue>>(&implement);
         std::vector<VariableValue>* arr = &implement.arrayImpl;
 
-        std::wostringstream stream;
-        stream << L"[";
+        std::ostringstream stream;
+        stream << "[";
         for (int i = 0; i < arr->size(); i++) {
-            if (i != 0) stream << L",";
+            if (i != 0) stream << ",";
             VariableValue& value = arr->at(i);
             if (value.varType == ValueType::REF &&
                 value.content.ref->type == ValueType::STRING) {
                 //字符串加上引号
-                stream << L'\"' << value.ToString(depth + 1) << L'\"';
+                stream << '\"' << value.ToString(depth + 1) << '\"';
             }
             else {
                 stream << value.ToString(depth + 1);
             }
         }
-        stream << L"]";
+        stream << "]";
         return stream.str();
 
         break;
     }
     case ValueType::OBJECT:
     {
-        std::unordered_map<std::wstring, VariableValue>* objContainer = &implement.objectImpl;
+        std::unordered_map<std::string, VariableValue>* objContainer = &implement.objectImpl;
 
-        std::wostringstream stream;
+        std::ostringstream stream;
         __objectStringHelper(objContainer, stream,depth); //depth在辅助函数内实现自增
 
         return stream.str();
@@ -161,7 +161,7 @@ std::wstring VMObject::ToString(uint16_t depth) {
     }
     case ValueType::FUNCTION:
     {
-        auto ret = L"<clos_fn>";
+        auto ret = "<clos_fn>";
         if (this->implement.closFuncImpl.propObject) {
             return ret + this->implement.closFuncImpl.propObject->ToString(depth);
         }
@@ -172,9 +172,9 @@ std::wstring VMObject::ToString(uint16_t depth) {
     case ValueType::PROMISE:
         break;
     default:
-        return L"error-object";
+        return "error-object";
     }
-    return L"unknown-object";
+    return "unknown-object";
 }
 
 //this一定要是引用类型所以不需要BRIDGE类型
@@ -213,10 +213,10 @@ VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObj
         else {
             thisValueRef.varType = ValueType::NULLREF;
         }
-        frame.functionEnvSymbols[L"this"] = thisValueRef;
+        frame.functionEnvSymbols["this"] = thisValueRef;
 
         if (closure) {
-            frame.functionEnvSymbols[L"_clos"] = CreateReferenceVariable(closure);
+            frame.functionEnvSymbols["_clos"] = CreateReferenceVariable(closure);
         }
 
         frame.scopeStack.push_back(defaultScope);

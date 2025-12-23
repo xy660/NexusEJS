@@ -6,17 +6,15 @@
 VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker);
 
 //系统内置符号表
-std::unordered_map<std::wstring, VariableValue> SystemBuildinSymbols;
+std::unordered_map<std::string, VariableValue> SystemBuildinSymbols;
 
 //内置对象，销毁需要释放
 std::vector<VMObject*> SystemStaticObjects;
 
-//存储一些不常驻符号表的系统函数对象，比如TaskObject中的操作方法
-std::vector<ScriptFunction*> SingleSystemFunctionStore;
 
 //void* BuildinSymbolLock;
 
-void RegisterSystemFunc(std::wstring name, uint8_t argCount, SystemFuncDef implement) {
+void RegisterSystemFunc(std::string name, uint8_t argCount, SystemFuncDef implement) {
 	auto funcRef = VM::CreateSystemFunc(argCount, implement); 
 	funcRef.readOnly = true;
 	SystemBuildinSymbols[name] = funcRef;
@@ -85,13 +83,13 @@ void* TaskEntry(void* param) {
 
 VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker) {
 	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
-	vmo->implement.objectImpl[L"id"] = CreateNumberVariable(id);
-	vmo->implement.objectImpl[L"threadId"] = CreateNumberVariable(threadId);
-	vmo->implement.objectImpl[L"isRunning"] = TaskObj_isRunningFunc;
-	vmo->implement.objectImpl[L"waitTimeout"] = TaskObj_waitTimeoutFunc;
-	vmo->implement.objectImpl[L"getResult"] = TaskObj_getResultFunc;
+	vmo->implement.objectImpl["id"] = CreateNumberVariable(id);
+	vmo->implement.objectImpl["threadId"] = CreateNumberVariable(threadId);
+	vmo->implement.objectImpl["isRunning"] = TaskObj_isRunningFunc;
+	vmo->implement.objectImpl["waitTimeout"] = TaskObj_waitTimeoutFunc;
+	vmo->implement.objectImpl["getResult"] = TaskObj_getResultFunc;
 
-	vmo->implement.objectImpl[L"finalize"] = TaskObj_finalizeFunc;
+	vmo->implement.objectImpl["finalize"] = TaskObj_finalizeFunc;
 	for (auto& pair : vmo->implement.objectImpl) {
 		pair.second.readOnly = true; // 设置只读防止用户乱赋值导致内存泄漏
 	}
@@ -108,54 +106,47 @@ VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* work
 std::unordered_map<uint32_t, ByteBufferInfo> bindedBytebuffer;
 uint32_t byteBufferIdSeed = 1;
 
+//Buffer对象容器模板，创建时拷贝到新对象
+std::unordered_map<std::string, VariableValue> BufferObjTemplate;
+
 ByteBufferInfo GetByteBufferInfo(uint32_t bufid) {
 	return bindedBytebuffer[bufid];
 }
 
-//失败返回NULL
-VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
+//初始化单例模板
+void InitByteBufferSingleFunc() {
 	
-	ByteBufferInfo info;
-	info.data = (uint8_t*)platform.MemoryAlloc(size);
-	if (!info.data) {
-		return NULL;
-	}
-	uint32_t id = byteBufferIdSeed++;
-	info.length = size;
-	bindedBytebuffer[id] = info;
-	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
-	vmo->implement.objectImpl[L"bufid"] = CreateNumberVariable((double)id);
 	//readUInt(offset,size);
-	vmo->implement.objectImpl[L"readUInt"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["readUInt"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invaild argument");
+			currentWorker->ThrowError("invaild argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		uint32_t size = (uint32_t)args[1].content.number;
 		if (offset < 0 || offset >= info.length || offset + size > info.length || size <= 0 || size > 8) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 		uint64_t integerBuffer = 0;
-		
+
 
 		memcpy(&integerBuffer, info.data + offset, size);
 		return CreateNumberVariable((double)integerBuffer);
-	});
-	vmo->implement.objectImpl[L"readInt"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+		});
+	BufferObjTemplate["readInt"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invaild argument");
+			currentWorker->ThrowError("invaild argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		uint32_t size = (uint32_t)args[1].content.number;
 		if (offset < 0 || offset >= info.length || offset + size > info.length || size <= 0 || size > 8) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 		int64_t integerBuffer = 0; //有符号版本
@@ -163,37 +154,37 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 
 		memcpy(&integerBuffer, info.data + offset, size);
 		return CreateNumberVariable((double)integerBuffer);
-	});
+		});
 	//readFloat(offset)
-	vmo->implement.objectImpl[L"readFloat"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["readFloat"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invaild argument");
+			currentWorker->ThrowError("invaild argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		uint32_t size = sizeof(float);
 		if (offset < 0 || offset >= info.length || offset + size > info.length || size <= 0 || size > 8) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 		float integerBuffer = 0;
 
 		memcpy(&integerBuffer, info.data + offset, size);
 		return CreateNumberVariable((double)integerBuffer);
-	});
-	vmo->implement.objectImpl[L"readDouble"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+		});
+	BufferObjTemplate["readDouble"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invaild argument");
+			currentWorker->ThrowError("invaild argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		uint32_t size = sizeof(double);
 		if (offset < 0 || offset >= info.length || offset + size > info.length || size <= 0 || size > 8) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 		double integerBuffer = 0;
@@ -202,76 +193,76 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		return CreateNumberVariable(integerBuffer);
 		});
 	//writeUInt(offset,size,value)
-	vmo->implement.objectImpl[L"writeUInt"] = VM::CreateSystemFunc(3, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["writeUInt"] = VM::CreateSystemFunc(3, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM || args[2].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invalid argument");
+			currentWorker->ThrowError("invalid argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		uint32_t size = (uint32_t)args[1].content.number;
 		uint64_t value = (uint64_t)args[2].content.number;
 
 		if (offset < 0 || offset >= info.length || offset + size > info.length || size <= 0 || size > 8) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 
 		memcpy(info.data + offset, &value, size);
 		return VariableValue();
 		});
-	vmo->implement.objectImpl[L"writeInt"] = VM::CreateSystemFunc(3, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["writeInt"] = VM::CreateSystemFunc(3, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM || args[2].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invalid argument");
+			currentWorker->ThrowError("invalid argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		uint32_t size = (uint32_t)args[1].content.number;
 		int64_t value = (int64_t)args[2].content.number;
 
 		if (offset < 0 || offset >= info.length || offset + size > info.length || size <= 0 || size > 8) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 
 		memcpy(info.data + offset, &value, size);
 		return VariableValue();
 		});
-	vmo->implement.objectImpl[L"writeFloat"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["writeFloat"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invalid argument");
+			currentWorker->ThrowError("invalid argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		float value = (float)args[1].content.number;
 		uint32_t size = sizeof(float);
 
 		if (offset < 0 || offset >= info.length || offset + size > info.length) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 
 		memcpy(info.data + offset, &value, size);
 		return VariableValue();
 		});
-	vmo->implement.objectImpl[L"writeDouble"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["writeDouble"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"invalid argument");
+			currentWorker->ThrowError("invalid argument");
 			return VariableValue();
 		}
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 		double value = args[1].content.number;
 		uint32_t size = sizeof(double);
 
 		if (offset < 0 || offset >= info.length || offset + size > info.length) {
-			currentWorker->ThrowError(L"out of range");
+			currentWorker->ThrowError("out of range");
 			return VariableValue();
 		}
 
@@ -279,18 +270,18 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		return VariableValue();
 		});
 	// readUTF8(offset, maxBytes?) - 读取UTF-8字符串，maxBytes可选
-	vmo->implement.objectImpl[L"readUTF8"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["readUTF8"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args.size() < 1 || args.size() > 2) {
-			currentWorker->ThrowError(L"invalid argument count");
+			currentWorker->ThrowError("invalid argument count");
 			return VariableValue();
 		}
 
 		if (args[0].getContentType() != ValueType::NUM) {
-			currentWorker->ThrowError(L"first argument must be number");
+			currentWorker->ThrowError("first argument must be number");
 			return VariableValue();
 		}
 
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 
@@ -298,7 +289,7 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		uint32_t maxBytes = 0;
 		if (args.size() >= 2) {
 			if (args[1].getContentType() != ValueType::NUM) {
-				currentWorker->ThrowError(L"second argument must be number");
+				currentWorker->ThrowError("second argument must be number");
 				return VariableValue();
 			}
 			maxBytes = (uint32_t)args[1].content.number;
@@ -309,7 +300,7 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		}
 
 		if (offset >= info.length) {
-			currentWorker->ThrowError(L"out of bounds");
+			currentWorker->ThrowError("out of bounds");
 			return VariableValue();
 		}
 
@@ -327,47 +318,42 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 
 		if (strLength == 0) {
 
-			return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(L""));
+			return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(""));
 		}
 
-		// 转换为UTF-8字符串
 		std::string utf8_str((char*)info.data + offset, strLength);
 
-		// 使用系统提供的转换函数
-		std::wstring utf16_str = string_to_wstring(utf8_str);
-		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(utf16_str));
+		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(utf8_str));
 		});
 
 	// writeUTF8(offset, string, addNull?) - 写入UTF-8字符串，addNull可选
-	vmo->implement.objectImpl[L"writeUTF8"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["writeUTF8"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args.size() < 2 || args.size() > 3) {
-			currentWorker->ThrowError(L"invalid argument count");
+			currentWorker->ThrowError("invalid argument count");
 			return VariableValue();
 		}
 
 		if (args[0].getContentType() != ValueType::NUM) {
-			currentWorker->ThrowError(L"first argument must be number");
+			currentWorker->ThrowError("first argument must be number");
 			return VariableValue();
 		}
 
 		if (args[1].getContentType() != ValueType::STRING) {
-			currentWorker->ThrowError(L"second argument must be string");
+			currentWorker->ThrowError("second argument must be string");
 			return VariableValue();
 		}
 
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 
-		// 获取UTF-16字符串
-		std::wstring utf16_str = args[1].content.ref->implement.stringImpl;
-		std::string utf8_str = wstring_to_string(utf16_str);
+		std::string utf8_str = args[1].content.ref->implement.stringImpl;
 
 		// 是否添加null结束符
 		bool addNull = true;
 		if (args.size() >= 3) {
 			if (args[2].getContentType() != ValueType::BOOL) {
-				currentWorker->ThrowError(L"third argument must be boolean");
+				currentWorker->ThrowError("third argument must be boolean");
 				return VariableValue();
 			}
 			addNull = (bool)args[2].content.boolean;
@@ -376,7 +362,7 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		size_t byteLength = utf8_str.length() + (addNull ? 1 : 0);
 
 		if (offset >= info.length || offset + byteLength > info.length) {
-			currentWorker->ThrowError(L"out of bounds");
+			currentWorker->ThrowError("out of bounds");
 			return VariableValue();
 		}
 
@@ -389,18 +375,18 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		});
 
 	// readUTF16(offset, length?) - 读取UTF-16字符串，length可选
-	vmo->implement.objectImpl[L"readUTF16"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["readUTF16"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args.size() < 1 || args.size() > 2) {
-			currentWorker->ThrowError(L"invalid argument count");
+			currentWorker->ThrowError("invalid argument count");
 			return VariableValue();
 		}
 
 		if (args[0].getContentType() != ValueType::NUM) {
-			currentWorker->ThrowError(L"first argument must be number");
+			currentWorker->ThrowError("first argument must be number");
 			return VariableValue();
 		}
 
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 
@@ -408,7 +394,7 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		uint32_t length = 0;
 		if (args.size() >= 2) {
 			if (args[1].getContentType() != ValueType::NUM) {
-				currentWorker->ThrowError(L"second argument must be number");
+				currentWorker->ThrowError("second argument must be number");
 				return VariableValue();
 			}
 			length = (uint32_t)args[1].content.number;
@@ -421,7 +407,7 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		uint32_t byteLength = length * 2;
 
 		if (offset >= info.length || offset + byteLength > info.length) {
-			currentWorker->ThrowError(L"out of bounds");
+			currentWorker->ThrowError("out of bounds");
 			return VariableValue();
 		}
 
@@ -438,39 +424,44 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		}
 
 		std::wstring result(buffer, actualLength);
-		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(result));
+
+		//转换成内部utf8
+		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(wstring_to_string(result)));
 		});
 
 	// writeUTF16(offset, string, addNull?) - 写入UTF-16字符串，addNull可选
-	vmo->implement.objectImpl[L"writeUTF16"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferObjTemplate["writeUTF16"] = VM::CreateSystemFunc(DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args.size() < 2 || args.size() > 3) {
-			currentWorker->ThrowError(L"invalid argument count");
+			currentWorker->ThrowError("invalid argument count");
 			return VariableValue();
 		}
 
 		if (args[0].getContentType() != ValueType::NUM) {
-			currentWorker->ThrowError(L"invalid argument count");
+			currentWorker->ThrowError("invalid argument count");
 			return VariableValue();
 		}
 
 		if (args[1].getContentType() != ValueType::STRING) {
-			currentWorker->ThrowError(L"invalid argument count");
+			currentWorker->ThrowError("invalid argument count");
 			return VariableValue();
 		}
 
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		auto& info = bindedBytebuffer[id];
 		uint32_t offset = (uint32_t)args[0].content.number;
 
-		// 获取UTF-16字符串
-		std::wstring str = args[1].content.ref->implement.stringImpl;
+		std::string u8str = args[1].content.ref->implement.stringImpl;
+
+		//转换UTF-16字符串
+		std::wstring str = string_to_wstring(u8str);
+
 		size_t length = str.length();
 
 		// 是否添加null结束符
 		bool addNull = true;
 		if (args.size() >= 3) {
 			if (args[2].getContentType() != ValueType::BOOL) {
-				currentWorker->ThrowError(L"third argument must be boolean");
+				currentWorker->ThrowError("third argument must be boolean");
 				return VariableValue();
 			}
 			addNull = (bool)args[2].content.boolean;
@@ -479,14 +470,14 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 		size_t byteLength = length * 2 + (addNull ? 2 : 0);
 
 		if (offset >= info.length || offset + byteLength > info.length) {
-			currentWorker->ThrowError(L"out of bounds");
+			currentWorker->ThrowError("out of bounds");
 			return VariableValue();
 		}
 
 		// 写入字符串
 		memcpy(info.data + offset, str.c_str(), length * 2);
 		if (addNull) {
-			wchar_t nullTerm = 0;
+			char nullTerm = 0;
 			memcpy(info.data + offset + length * 2, &nullTerm, 2);
 		}
 
@@ -495,25 +486,43 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 
 	//析构
 
-	vmo->implement.objectImpl[L"close"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+	BufferObjTemplate["close"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		printf("ByteBuffer.close id:%d\n", id);
 		auto& info = bindedBytebuffer[id];
 		platform.MemoryFree(info.data);
 		bindedBytebuffer.erase(id);
-		thisValue->implement.objectImpl.erase(L"finalize"); //删掉析构函数让GC可直接回收
+		thisValue->implement.objectImpl.erase("finalize"); //删掉析构函数让GC可直接回收
 		return VariableValue();
 		});
 
-	vmo->implement.objectImpl[L"finalize"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-		uint32_t id = (uint32_t)thisValue->implement.objectImpl[L"bufid"].content.number;
+	BufferObjTemplate["finalize"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+		uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
 		printf("ByteBuffer.finalize id:%d\n", id);
 		auto& info = bindedBytebuffer[id];
 		platform.MemoryFree(info.data);
 		bindedBytebuffer.erase(id);
 		return CreateBooleanVariable(true);
-	});
+		});
+
+}
+
+//失败返回NULL
+VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 	
+	ByteBufferInfo info;
+	info.data = (uint8_t*)platform.MemoryAlloc(size);
+	if (!info.data) {
+		return NULL;
+	}
+	uint32_t id = byteBufferIdSeed++;
+	info.length = size;
+	bindedBytebuffer[id] = info;
+	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+
+	vmo->implement.objectImpl = BufferObjTemplate; //拷贝内置成员方法
+
+	vmo->implement.objectImpl["bufid"] = CreateNumberVariable((double)id);
 
 	for (auto& pair : vmo->implement.objectImpl) {
 		pair.second.readOnly = true;
@@ -527,33 +536,33 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 
 void MathClassInit() {
 	VMObject* mathClass = CreateStaticObject(ValueType::OBJECT);
-	mathClass->implement.objectImpl[L"sin"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["sin"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
-			worker->ThrowError(L"invaild argument type");
+			worker->ThrowError("invaild argument type");
 		}
 		return CreateNumberVariable(sin(args[0].content.number));
-	}); mathClass->implement.objectImpl[L"sin"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	}); mathClass->implement.objectImpl["sin"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(sin(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"cos"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["cos"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(cos(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"tan"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["tan"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(tan(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"asin"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["asin"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -564,7 +573,7 @@ void MathClassInit() {
 		return CreateNumberVariable(asin(x));
 		});
 
-	mathClass->implement.objectImpl[L"acos"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["acos"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -575,21 +584,21 @@ void MathClassInit() {
 		return CreateNumberVariable(acos(x));
 		});
 
-	mathClass->implement.objectImpl[L"atan"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["atan"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(atan(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"atan2"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["atan2"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(atan2(args[0].content.number, args[1].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"sqrt"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["sqrt"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -600,21 +609,21 @@ void MathClassInit() {
 		return CreateNumberVariable(sqrt(x));
 		});
 
-	mathClass->implement.objectImpl[L"pow"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["pow"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(pow(args[0].content.number, args[1].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"exp"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["exp"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(exp(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"log"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["log"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -628,7 +637,7 @@ void MathClassInit() {
 		return CreateNumberVariable(log(x));
 		});
 
-	mathClass->implement.objectImpl[L"log10"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["log10"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -642,35 +651,35 @@ void MathClassInit() {
 		return CreateNumberVariable(log10(x));
 		});
 
-	mathClass->implement.objectImpl[L"abs"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["abs"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(fabs(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"ceil"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["ceil"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(ceil(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"floor"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["floor"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(floor(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"round"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["round"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(round(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"max"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["max"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -679,7 +688,7 @@ void MathClassInit() {
 		return CreateNumberVariable(a > b ? a : b);
 		});
 
-	mathClass->implement.objectImpl[L"min"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["min"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -688,30 +697,30 @@ void MathClassInit() {
 		return CreateNumberVariable(a < b ? a : b);
 		});
 
-	mathClass->implement.objectImpl[L"random"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["random"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		return CreateNumberVariable((double)rand() / RAND_MAX);
 		});
 
-	mathClass->implement.objectImpl[L"PI"] = CreateNumberVariable(3.14159265358979323846);
-	mathClass->implement.objectImpl[L"E"] = CreateNumberVariable(2.71828182845904523536);
+	mathClass->implement.objectImpl["PI"] = CreateNumberVariable(3.14159265358979323846);
+	mathClass->implement.objectImpl["E"] = CreateNumberVariable(2.71828182845904523536);
 
 	// 常量
-	mathClass->implement.objectImpl[L"SQRT2"] = CreateNumberVariable(1.41421356237309504880);
-	mathClass->implement.objectImpl[L"SQRT1_2"] = CreateNumberVariable(0.70710678118654752440);
-	mathClass->implement.objectImpl[L"LN2"] = CreateNumberVariable(0.69314718055994530942);
-	mathClass->implement.objectImpl[L"LN10"] = CreateNumberVariable(2.30258509299404568402);
-	mathClass->implement.objectImpl[L"LOG2E"] = CreateNumberVariable(1.44269504088896340736);
-	mathClass->implement.objectImpl[L"LOG10E"] = CreateNumberVariable(0.43429448190325182765);
+	mathClass->implement.objectImpl["SQRT2"] = CreateNumberVariable(1.41421356237309504880);
+	mathClass->implement.objectImpl["SQRT1_2"] = CreateNumberVariable(0.70710678118654752440);
+	mathClass->implement.objectImpl["LN2"] = CreateNumberVariable(0.69314718055994530942);
+	mathClass->implement.objectImpl["LN10"] = CreateNumberVariable(2.30258509299404568402);
+	mathClass->implement.objectImpl["LOG2E"] = CreateNumberVariable(1.44269504088896340736);
+	mathClass->implement.objectImpl["LOG10E"] = CreateNumberVariable(0.43429448190325182765);
 
 	// 三角函数（弧度转角度）
-	mathClass->implement.objectImpl[L"degrees"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["degrees"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(args[0].content.number * 180.0 / 3.14159265358979323846);
 		});
 
-	mathClass->implement.objectImpl[L"radians"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["radians"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -719,21 +728,21 @@ void MathClassInit() {
 		});
 
 	// 双曲函数
-	mathClass->implement.objectImpl[L"sinh"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["sinh"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(sinh(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"cosh"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["cosh"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
 		return CreateNumberVariable(cosh(args[0].content.number));
 		});
 
-	mathClass->implement.objectImpl[L"tanh"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["tanh"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -741,7 +750,7 @@ void MathClassInit() {
 		});
 
 	// 符号函数
-	mathClass->implement.objectImpl[L"sign"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["sign"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -752,7 +761,7 @@ void MathClassInit() {
 		});
 
 	// 取余
-	mathClass->implement.objectImpl[L"fmod"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["fmod"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -765,7 +774,7 @@ void MathClassInit() {
 		});
 
 	// 截断
-	mathClass->implement.objectImpl[L"trunc"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+	mathClass->implement.objectImpl["trunc"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 		if (args[0].varType != ValueType::NUM) {
 			return CreateNumberVariable(NAN);
 		}
@@ -776,7 +785,7 @@ void MathClassInit() {
 		pair.second.readOnly = true;
 	}
 
-	SystemBuildinSymbols[L"Math"] = CreateReferenceVariable(mathClass);
+	SystemBuildinSymbols["Math"] = CreateReferenceVariable(mathClass);
 }
 
 #pragma endregion
@@ -787,16 +796,16 @@ void SingleSystemFuncInit() {
 	/***下面项初始化后存储都必须要在SingleSystemFunctionStore中存储指针***/
 	TaskObj_isRunningFunc = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker) -> VariableValue {
 		platform.MutexLock(worker->VMInstance->globalSymbolLock);
-		uint32_t taskId = (uint32_t)thisValue->implement.objectImpl[L"id"].content.number;
+		uint32_t taskId = (uint32_t)thisValue->implement.objectImpl["id"].content.number;
 		bool res = worker->VMInstance->tasks[taskId].status == TaskContext::RUNNING;
 		platform.MutexUnlock(worker->VMInstance->globalSymbolLock);
 		return CreateBooleanVariable(res);
 		});
-	SingleSystemFunctionStore.push_back(TaskObj_isRunningFunc.content.function);
+	//SingleSystemFunctionStore.push_back(TaskObj_isRunningFunc.content.function);
 
 	TaskObj_waitTimeoutFunc = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM) { //用户可能传入进来其他类型
-			worker->ThrowError(L"only support number");
+			worker->ThrowError("only support number");
 			return VariableValue();
 		}
 		uint32_t targetTime = (uint32_t)args[0].content.number;
@@ -804,7 +813,7 @@ void SingleSystemFuncInit() {
 		auto& objContainer = thisValue->implement.objectImpl;
 
 		platform.MutexLock(worker->VMInstance->globalSymbolLock);
-		auto& context = worker->VMInstance->tasks[(uint32_t)objContainer[L"id"].content.number];
+		auto& context = worker->VMInstance->tasks[(uint32_t)objContainer["id"].content.number];
 		platform.MutexUnlock(worker->VMInstance->globalSymbolLock);
 
 		uint32_t start = platform.TickCount32();
@@ -818,38 +827,38 @@ void SingleSystemFuncInit() {
 		}
 		return CreateBooleanVariable(true);
 		});
-	SingleSystemFunctionStore.push_back(TaskObj_waitTimeoutFunc.content.function);
+	//SingleSystemFunctionStore.push_back(TaskObj_waitTimeoutFunc.content.function);
 
 	TaskObj_getResultFunc = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker) -> VariableValue {
 		platform.MutexLock(worker->VMInstance->globalSymbolLock);
-		uint32_t taskId = (uint32_t)thisValue->implement.objectImpl[L"id"].content.number;
+		uint32_t taskId = (uint32_t)thisValue->implement.objectImpl["id"].content.number;
 		auto result = worker->VMInstance->tasks[taskId].result;
 		platform.MutexUnlock(worker->VMInstance->globalSymbolLock);
 		return result;
 	});
-	SingleSystemFunctionStore.push_back(TaskObj_getResultFunc.content.function);
+	//SingleSystemFunctionStore.push_back(TaskObj_getResultFunc.content.function);
 
 
 	TaskObj_finalizeFunc = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
 
-		uint16_t taskId = (uint32_t)thisValue->implement.objectImpl[L"id"].content.number;
+		uint16_t taskId = (uint32_t)thisValue->implement.objectImpl["id"].content.number;
 
 		if (worker->VMInstance->tasks[taskId].status == TaskContext::RUNNING) {
 #ifdef _DEBUG
-			//wprintf(L"TaskObject.finalize() false %ws\n", thisValue->ToString().c_str());
+			//wprintf("TaskObject.finalize() false %ws\n", thisValue->ToString().c_str());
 #endif
 			return CreateBooleanVariable(false); //返回false表示控制对象还不能销毁
 		}
 
 		worker->VMInstance->tasks.erase(taskId);
 #ifdef _DEBUG
-		//wprintf(L"TaskObject.finalize() true %ws\n", thisValue->ToString().c_str());
+		//wprintf("TaskObject.finalize() true %ws\n", thisValue->ToString().c_str());
 #endif
 		return CreateBooleanVariable(true);
 	});
-	SingleSystemFunctionStore.push_back(TaskObj_finalizeFunc.content.function);
+	//SingleSystemFunctionStore.push_back(TaskObj_finalizeFunc.content.function);
 
-	
+	InitByteBufferSingleFunc();
 }
 
 
@@ -859,7 +868,7 @@ void BuildinStdlib_Init()
 
 	SingleSystemFuncInit();
 
-	RegisterSystemFunc(L"runTask", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	RegisterSystemFunc("runTask", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		//return VariableValue();
 
 		VM* currentVM = currentWorker->VMInstance;
@@ -867,7 +876,7 @@ void BuildinStdlib_Init()
 		//修改workers表要确保线程安全，同一时间只有一个线程修改workers和context表
 
 		if (args[0].getContentType() != ValueType::FUNCTION) {
-			currentWorker->ThrowError(L"runTask(entry,param) only accept Func type with 1 arg.");
+			currentWorker->ThrowError("runTask(entry,param) only accept Func type with 1 arg.");
 			return VariableValue();
 		}
 
@@ -881,12 +890,12 @@ void BuildinStdlib_Init()
 		//args[0].getRawVariable()->content.function;
 
 		if (targetInvoke->type != ScriptFunction::Local) {
-			currentWorker->ThrowError(L"task must be local function.");
+			currentWorker->ThrowError("task must be local function.");
 			return VariableValue();
 		}
 
 		if (targetInvoke->argumentCount != 0) {
-			currentWorker->ThrowError(L"entry must has 0 arg");
+			currentWorker->ThrowError("entry must has 0 arg");
 			return VariableValue();
 		}
 
@@ -928,10 +937,10 @@ void BuildinStdlib_Init()
 		));
 	});
 
-	RegisterSystemFunc(L"mutexLock", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
+	RegisterSystemFunc("mutexLock", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
 		
 		if (args[0].getRawVariable()->varType != ValueType::REF) {
-			currentWorker->ThrowError(L"lock only support object value");
+			currentWorker->ThrowError("lock only support object value");
 			return VariableValue();
 		}
 
@@ -944,12 +953,12 @@ void BuildinStdlib_Init()
 		return VariableValue();
 	});
 
-	RegisterSystemFunc(L"mutexUnlock", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
+	RegisterSystemFunc("mutexUnlock", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
 
 		
 
 		if (args[0].getRawVariable()->varType != ValueType::REF) {
-			currentWorker->ThrowError(L"lock only support object value");
+			currentWorker->ThrowError("lock only support object value");
 			return VariableValue();
 		}
 
@@ -959,15 +968,15 @@ void BuildinStdlib_Init()
 		return VariableValue();
 	});
 	
-	RegisterSystemFunc(L"require", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
+	RegisterSystemFunc("require", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
 
 		if (args[0].getContentType() != ValueType::STRING) {
-			currentWorker->ThrowError(L"invaild argument");
+			currentWorker->ThrowError("invaild argument");
 			return VariableValue();
 		}
 
 		if (!platform.FileExist(args[0].content.ref->implement.stringImpl)) {
-			currentWorker->ThrowError(L"file dos not exist");
+			currentWorker->ThrowError("file dos not exist");
 			return VariableValue();
 		}
 		uint32_t fileSize = 0;
@@ -977,46 +986,46 @@ void BuildinStdlib_Init()
 		
 		platform.MemoryFree(nejsBuffer); //释放读取文件分配的内存
 
-		std::wstring entryName = L"main_entry";
+		std::string entryName = "main_entry";
 		return currentWorker->VMInstance->InitAndCallEntry(entryName, id);
 
 		});
-	
+
 	MathClassInit();
 
 	VMObject* NumberClassObject = CreateStaticObject(ValueType::OBJECT);
-	NumberClassObject->implement.objectImpl[L"parseFloat"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-		wchar_t* endPtr = NULL;
-		double result = wcstod(args[0].ToString().c_str(), &endPtr);
+	NumberClassObject->implement.objectImpl["parseFloat"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+		char* endPtr = NULL;
+		double result = strtod(args[0].ToString().c_str(), &endPtr);
 		return CreateNumberVariable(result);
 	});
-	NumberClassObject->implement.objectImpl[L"parseInt"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-		wchar_t* endPtr = NULL;
-		double result = wcstod(args[0].ToString().c_str(), &endPtr);
+	NumberClassObject->implement.objectImpl["parseInt"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+		char* endPtr = NULL;
+		double result = strtod(args[0].ToString().c_str(), &endPtr);
 		return CreateNumberVariable(result);
 	});
-	NumberClassObject->implement.objectImpl[L"toString"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	NumberClassObject->implement.objectImpl["toString"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(args[0].ToString()));
 	});
-	SystemBuildinSymbols[L"Number"] = CreateReferenceVariable(NumberClassObject);
+	SystemBuildinSymbols["Number"] = CreateReferenceVariable(NumberClassObject);
 
 	VMObject* BufferClassObject = CreateStaticObject(ValueType::OBJECT);
 	//Buffer.create(size)
-	BufferClassObject->implement.objectImpl[L"create"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+	BufferClassObject->implement.objectImpl["create"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].getContentType() != ValueType::NUM) {
-			currentWorker->ThrowError(L"invalid argument");
+			currentWorker->ThrowError("invalid argument");
 			return VariableValue();
 		}
 		uint32_t size = args[0].content.number;
 		VMObject* BufferObject = CreateByteBufferObject(size, currentWorker);
 		if (!BufferObject) {
-			currentWorker->ThrowError(L"no enough memory");
+			currentWorker->ThrowError("no enough memory");
 			return VariableValue();
 		}
 		return CreateReferenceVariable(BufferObject);
 	});
 
-	SystemBuildinSymbols[L"Buffer"] = CreateReferenceVariable(BufferClassObject);
+	SystemBuildinSymbols["Buffer"] = CreateReferenceVariable(BufferClassObject);
 }
 
 void BuildinStdlib_Destroy() {
@@ -1030,25 +1039,29 @@ void BuildinStdlib_Destroy() {
 	}
 	*/
 
+	//批量释放对象
 	for (auto& pair : SystemBuildinSymbols) {
-		if (pair.second.varType == ValueType::FUNCTION) {
-			pair.second.content.function->~ScriptFunction();
-			platform.MemoryFree(pair.second.content.function);
-		}
-		else if (pair.second.varType == ValueType::REF) {
+		if (pair.second.varType == ValueType::REF) {
 			pair.second.content.ref->~VMObject();
 			platform.MemoryFree(pair.second.content.ref); //这里移除了非函数类引用
 		}
 	} 
 
 	SystemBuildinSymbols.clear();
-
+	/*
 	for (ScriptFunction* system_func : SingleSystemFunctionStore) {
 		platform.MemoryFree(system_func);
 	}
+	*/
+
+	//释放所有系统函数（值函数类型）
+	for (auto sfn : VM::SystemFunctionObjects) {
+		sfn->~ScriptFunction();
+		platform.MemoryFree(sfn);
+	}
 }
 
-VariableValue* SystemGetSymbol(std::wstring& symbol)
+VariableValue* SystemGetSymbol(std::string& symbol)
 {
 	//platform.MutexLock(BuildinSymbolLock);
 	if (SystemBuildinSymbols.find(symbol) == SystemBuildinSymbols.end()) {
@@ -1060,4 +1073,3 @@ VariableValue* SystemGetSymbol(std::wstring& symbol)
 	
 	return ret;
 }
-

@@ -87,7 +87,7 @@ public:
 
     ValueType::IValueType getContentType();
 
-    std::wstring ToString(uint16_t depth = 0);
+    std::string ToString(uint16_t depth = 0) const;
 
     VariableValue() {
         content = { 0 };
@@ -111,9 +111,9 @@ public:
 
     union VMOImplement
     {
-        std::unordered_map<std::wstring, VariableValue> objectImpl;
+        std::unordered_map<std::string, VariableValue> objectImpl;
         std::vector<VariableValue> arrayImpl;
-        std::wstring stringImpl;
+        std::string stringImpl;
         ClosureFunctionImpl closFuncImpl;
         VMOImplement(){
         }
@@ -121,7 +121,7 @@ public:
     } implement;
 
 
-    std::wstring ToString(uint16_t depth = 0);
+    std::string ToString(uint16_t depth = 0);
 
 
     //复制语义，未来需要再启用
@@ -179,7 +179,7 @@ public:
         {
         case ValueType::STRING:
         {
-            new (&implement.stringImpl) std::wstring();
+            new (&implement.stringImpl) std::string();
             break;
         }
         case ValueType::ARRAY:
@@ -189,7 +189,7 @@ public:
         }
         case ValueType::OBJECT:
         {
-            new (&implement.objectImpl) std::unordered_map<std::wstring, VariableValue>();
+            new (&implement.objectImpl) std::unordered_map<std::string, VariableValue>();
             break;
         }
         case ValueType::FUNCTION:
@@ -286,8 +286,8 @@ class PackageContext {
 public:
     uint16_t packageId;
     std::vector<VMObject*> ConstStringPool;
-    std::unordered_map<std::wstring, VariableValue> bytecodeFunctions;
-    std::wstring packageName;
+    std::unordered_map<std::string, VariableValue> bytecodeFunctions;
+    std::string packageName;
 };
 
 

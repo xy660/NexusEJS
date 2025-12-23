@@ -8,4 +8,4 @@
 
 void StringManager_Init();
 void StringManager_Destroy();
-VariableValue GetStringValSymbol(std::wstring& symbol, VMObject* owner);
+VariableValue GetStringValSymbol(std::string& symbol, VMObject* owner);

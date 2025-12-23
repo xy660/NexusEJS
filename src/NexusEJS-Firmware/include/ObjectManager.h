@@ -9,4 +9,4 @@
 
 void ObjectManager_Init();
 void ObjectManager_Destroy();
-VariableValue GetObjectBuildinSymbol(std::wstring& symbol, VMObject* owner);
+VariableValue GetObjectBuildinSymbol(std::string& symbol, VMObject* owner);

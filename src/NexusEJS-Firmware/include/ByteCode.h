@@ -17,7 +17,7 @@ public:
     std::vector<uint16_t> arguments;
     std::vector<uint16_t> outsideSymbols; //存储外部符号依赖
     uint32_t packageId; 
-    std::wstring funcName;
+    std::string funcName;
     uint16_t funcNameStrId;
     ByteCodeFunction() {
         byteCode = NULL;

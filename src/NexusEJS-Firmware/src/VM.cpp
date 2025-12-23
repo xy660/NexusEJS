@@ -169,7 +169,7 @@ VMWorker::VMWorker(VM* current_vm) {
 }
 
 //初始化操作，加载方法字节码帧并启动解释器循环
-VariableValue VMWorker::Init(ByteCodeFunction& entry_func,std::vector<VariableValue>& args, std::unordered_map<std::wstring, VariableValue>* env) {
+VariableValue VMWorker::Init(ByteCodeFunction& entry_func,std::vector<VariableValue>& args, std::unordered_map<std::string, VariableValue>* env) {
 	FuncFrame frame;
 	frame.byteCode = entry_func.byteCode;
 	frame.byteCodeLength = entry_func.byteCodeLength;
@@ -194,7 +194,7 @@ VariableValue VMWorker::Init(ByteCodeFunction& entry_func,std::vector<VariableVa
 	callFrames.push_back(frame);
 	return VMWorkerTask();
 }
-void VMWorker::ThrowError(std::wstring messageString) {
+void VMWorker::ThrowError(std::string messageString) {
 	auto messageObject = VMInstance->currentGC->GC_NewStringObject(messageString);
 	VariableValue message;
 	message.varType = ValueType::REF;
@@ -217,7 +217,7 @@ void VMWorker::ThrowError(VariableValue& messageString)
 	printf("EIP: %d\r\n", currentScope.byteCodeStart + currentScope.ep);
 	printf("===Environment===\r\n");
 	for (auto& env_pair : currentFn.functionEnvSymbols) {
-		printf("[%s]%s\n", wstring_to_string(env_pair.first).c_str(), wstring_to_string(env_pair.second.ToString()).c_str());
+		printf("[%s]%s\n", env_pair.first.c_str(), env_pair.second.ToString().c_str());
 	}
 	printf("===Variables===\r\n");
 	for (int i = 0; i < currentFn.localVariables.size(); i++) {
@@ -227,13 +227,13 @@ void VMWorker::ThrowError(VariableValue& messageString)
 		auto& name = package.ConstStringPool[currentFn.localVarNames[i]]->implement.stringImpl;
 		auto& varValue = currentFn.localVariables[i];
 
-		printf("[%s]%s\n", wstring_to_string(name).c_str(), wstring_to_string(varValue.ToString()).c_str());
+		printf("[%s]%s\n", name.c_str(), varValue.ToString().c_str());
 	}
 	printf("===Stack===\r\n");
 	int stki = 0;
 	for (auto& varb : currentFn.virtualStack) {
 		stki++;
-		printf("[%d]%s\r\n", stki, wstring_to_string(varb.ToString()).c_str());
+		printf("[%d]%s\r\n", stki, varb.ToString().c_str());
 	}
 
 	printf("\r\n\r\n===Scope===\r\n");
@@ -251,26 +251,26 @@ void VMWorker::ThrowError(VariableValue& messageString)
 #endif
 
 	VMObject* errorObject = VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
-	errorObject->implement.objectImpl[L"message"] = messageString;
+	errorObject->implement.objectImpl["message"] = messageString;
 
-	std::wostringstream stream;
+	std::ostringstream stream;
 	stream << std::endl;
 	for (int i = callFrames.size() - 1; i >= 0; i--) {
 		auto& fnFrame = callFrames[i];
-		stream << L"at " << fnFrame.functionInfo->funcName << "(";
+		stream << "at " << fnFrame.functionInfo->funcName << "(";
 		for (int argIndex = 0; argIndex < fnFrame.functionInfo->arguments.size(); argIndex++) {
-			if (argIndex != 0) stream << L",";
+			if (argIndex != 0) stream << ",";
 			auto argName = VMInstance->loadedPackages[fnFrame.functionInfo->packageId].ConstStringPool[fnFrame.functionInfo->arguments[argIndex]]->ToString();
 
 			stream << argName;
 
-			stream << L"=";
+			stream << "=";
 			stream << fnFrame.localVariables[argIndex].ToString();
 		}
-		stream << L") offset:" << fnFrame.scopeStack.back().byteCodeStart + fnFrame.scopeStack.back().ep << std::endl;
+		stream << ") offset:" << fnFrame.scopeStack.back().byteCodeStart + fnFrame.scopeStack.back().ep << std::endl;
 	}
 
-	errorObject->implement.objectImpl[L"stackTrace"] = CreateReferenceVariable(
+	errorObject->implement.objectImpl["stackTrace"] = CreateReferenceVariable(
 		VMInstance->currentGC->GC_NewStringObject(stream.str())
 	);
 
@@ -335,7 +335,7 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 
 	auto& package = worker->VMInstance->loadedPackages[packageId];
 
-	std::unordered_map<std::wstring, VariableValue> closureContainer;
+	std::unordered_map<std::string, VariableValue> closureContainer;
 	
 	//查找哪些局部变量需要被捕获
 	uint32_t index = 0;
@@ -343,7 +343,7 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 		//计算交集进行捕获
 		for (auto symid : outsideSym) {
 			if (symid == varbNameId) {
-				std::wstring& varName = package.ConstStringPool[varbNameId]->implement.stringImpl;
+				std::string& varName = package.ConstStringPool[varbNameId]->implement.stringImpl;
 				closureContainer[varName] = frame->localVariables[index];
 			}
 		}
@@ -352,7 +352,7 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 	}
 
 	//查找父层闭包有没有需要被捕获的，进行闭包继承
-	auto clos_find = frame->functionEnvSymbols.find(L"_clos");
+	auto clos_find = frame->functionEnvSymbols.find("_clos");
 	if (clos_find != frame->functionEnvSymbols.end()) {
 		if ((*clos_find).second.getContentType() == ValueType::OBJECT) {
 			for (auto& closVarb : (*clos_find).second.content.ref->implement.objectImpl) {
@@ -387,7 +387,7 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 	return CreateReferenceVariable(closureFunction);
 }
 
-static VariableValue* __vmworker_find_variable(VMWorker& worker, std::wstring& name) {
+static VariableValue* __vmworker_find_variable(VMWorker& worker, std::string& name) {
 	auto& callingStack = worker.getCallingLink();
 	//for (int i = callingStack.size() - 1; i >= 0; i--) {
 		//FuncFrame& fnFrame = callingStack[i];
@@ -409,7 +409,7 @@ static VariableValue* __vmworker_find_variable(VMWorker& worker, std::wstring& n
 
 	
 	//从闭包查找（如有）
-	auto clos_find = fnFrame.functionEnvSymbols.find(L"_clos"); //闭包对象通过参数隐式传递
+	auto clos_find = fnFrame.functionEnvSymbols.find("_clos"); //闭包对象通过参数隐式传递
 	if (clos_find != fnFrame.functionEnvSymbols.end()) {
 		auto& closureObject = (*clos_find).second;
 		if (closureObject.getContentType() == ValueType::OBJECT) {
@@ -431,7 +431,7 @@ static VariableValue* __vmworker_find_variable(VMWorker& worker, std::wstring& n
 
 	//如果都没有找到就尝试从全局变量表找
 
-	static std::wstring g_name = L"global";
+	static std::string g_name = "global";
 	VariableValue* globalObject = worker.VMInstance->getGlobalSymbol(g_name);
 	auto& globalObjectContainer = globalObject->content.ref->implement.objectImpl;
 	auto globalObjectFind = globalObjectContainer.find(name);
@@ -600,13 +600,13 @@ VariableValue VMWorker::VMWorkerTask() {
 
 				//如果有一边是字符串就是合法的
 				if (left->getContentType() == ValueType::STRING || right->getContentType() == ValueType::STRING) {
-					std::wstring resstr = left->ToString() + right->ToString();
+					std::string resstr = left->ToString() + right->ToString();
 					res.varType = ValueType::REF;
 					res.content.ref = VMInstance->currentGC->GC_NewObject(ValueType::STRING);
 					res.content.ref->implement.stringImpl = resstr;
 				}
 				else {
-					ThrowError(L"ADD operation not vaild");
+					ThrowError("ADD operation not vaild");
 				}
 			}
 			else {
@@ -623,13 +623,13 @@ VariableValue VMWorker::VMWorkerTask() {
 		}
 
 		case OpCode::SUB:
-			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM - BINARY_OP_RIGHT_NUM, L"SUB指令只能接受NUM类型");
+			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM - BINARY_OP_RIGHT_NUM, "SUB指令只能接受NUM类型");
 		case OpCode::MUL:
-			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM * BINARY_OP_RIGHT_NUM, L"MUL指令只能接受NUM类型");
+			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM * BINARY_OP_RIGHT_NUM, "MUL指令只能接受NUM类型");
 		case OpCode::DIV:
-			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM / BINARY_OP_RIGHT_NUM, L"DIV指令只能接受NUM类型");
+			BINARY_NUMERIC_OP(BINARY_OP_LEFT_NUM / BINARY_OP_RIGHT_NUM, "DIV指令只能接受NUM类型");
 		case OpCode::MOD:
-			BINARY_NUMERIC_OP(fmod(BINARY_OP_LEFT_NUM, BINARY_OP_RIGHT_NUM), L"MOD指令只能接受NUM类型");
+			BINARY_NUMERIC_OP(fmod(BINARY_OP_LEFT_NUM, BINARY_OP_RIGHT_NUM), "MOD指令只能接受NUM类型");
 		case OpCode::NOT:
 		{
 			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
@@ -651,11 +651,11 @@ VariableValue VMWorker::VMWorkerTask() {
 			break;
 		}
 		case OpCode::BIT_AND:
-			BINARY_NUMERIC_OP((double)((uint32_t)BINARY_OP_LEFT_NUM & (uint32_t)BINARY_OP_RIGHT_NUM), L"BIT_AND指令只能接受NUM类型");
+			BINARY_NUMERIC_OP((double)((uint32_t)BINARY_OP_LEFT_NUM & (uint32_t)BINARY_OP_RIGHT_NUM), "BIT_AND指令只能接受NUM类型");
 		case OpCode::BIT_OR:
-			BINARY_NUMERIC_OP((double)((uint32_t)BINARY_OP_LEFT_NUM | (uint32_t)BINARY_OP_RIGHT_NUM), L"BIT_OR指令只能接受NUM类型");
+			BINARY_NUMERIC_OP((double)((uint32_t)BINARY_OP_LEFT_NUM | (uint32_t)BINARY_OP_RIGHT_NUM), "BIT_OR指令只能接受NUM类型");
 		case OpCode::BIT_XOR:
-			BINARY_NUMERIC_OP((double)((uint32_t)BINARY_OP_LEFT_NUM ^ (uint32_t)BINARY_OP_RIGHT_NUM), L"BIT_XOR指令只能接受NUM类型");
+			BINARY_NUMERIC_OP((double)((uint32_t)BINARY_OP_LEFT_NUM ^ (uint32_t)BINARY_OP_RIGHT_NUM), "BIT_XOR指令只能接受NUM类型");
 		case OpCode::BIT_NOT:
 		{
 			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
@@ -667,9 +667,9 @@ VariableValue VMWorker::VMWorkerTask() {
 			break;
 		}
 		case OpCode::SHL:
-			BINARY_NUMERIC_OP((double)((uint64_t)BINARY_OP_LEFT_NUM << (uint64_t)BINARY_OP_RIGHT_NUM), L"SHL指令只能接受NUM");
+			BINARY_NUMERIC_OP((double)((uint64_t)BINARY_OP_LEFT_NUM << (uint64_t)BINARY_OP_RIGHT_NUM), "SHL指令只能接受NUM");
 		case OpCode::SHR:
-			BINARY_NUMERIC_OP((double)((uint64_t)BINARY_OP_LEFT_NUM >> (uint64_t)BINARY_OP_RIGHT_NUM), L"SHL指令只能接受NUM");
+			BINARY_NUMERIC_OP((double)((uint64_t)BINARY_OP_LEFT_NUM >> (uint64_t)BINARY_OP_RIGHT_NUM), "SHL指令只能接受NUM");
 		case OpCode::EQUAL:
 		{
 			VariableValue* right = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable();
@@ -695,17 +695,17 @@ VariableValue VMWorker::VMWorkerTask() {
 			break;
 		}
 		case OpCode::LOWER_EQUAL:
-			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM <= BINARY_OP_RIGHT_NUM, L"比较运算符只接受NUM");
+			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM <= BINARY_OP_RIGHT_NUM, "比较运算符只接受NUM");
 		case OpCode::GREATER_EQUAL:
-			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM >= BINARY_OP_RIGHT_NUM, L"比较运算符只接受NUM");
+			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM >= BINARY_OP_RIGHT_NUM, "比较运算符只接受NUM");
 		case OpCode::LOWER:
-			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM < BINARY_OP_RIGHT_NUM, L"比较运算符只接受NUM");
+			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM < BINARY_OP_RIGHT_NUM, "比较运算符只接受NUM");
 		case OpCode::GREATER:
-			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM > BINARY_OP_RIGHT_NUM, L"比较运算符只接受NUM");
+			BINARY_NUMERIC_OP_RETBOOL(BINARY_OP_LEFT_NUM > BINARY_OP_RIGHT_NUM, "比较运算符只接受NUM");
 		case OpCode::AND:
-			BINARY_BOOLEAN_OP(BINARY_OP_LEFT_BOOL && BINARY_OP_RIGHT_BOOL, L"比较运算符只接受NUM");
+			BINARY_BOOLEAN_OP(BINARY_OP_LEFT_BOOL && BINARY_OP_RIGHT_BOOL, "比较运算符只接受NUM");
 		case OpCode::OR:
-			BINARY_BOOLEAN_OP(BINARY_OP_LEFT_BOOL || BINARY_OP_RIGHT_BOOL, L"比较运算符只接受NUM");
+			BINARY_BOOLEAN_OP(BINARY_OP_LEFT_BOOL || BINARY_OP_RIGHT_BOOL, "比较运算符只接受NUM");
 		case OpCode::SCOPE_PUSH:
 		{
 			ScopeFrame scope;
@@ -738,7 +738,7 @@ VariableValue VMWorker::VMWorkerTask() {
 				}
 			}
 			if (!success) {
-				ThrowError(L"无法执行break语句，无目标作用域可跳转");
+				ThrowError("无法执行break语句，无目标作用域可跳转");
 			}
 			continue; //改变了作用域帧就不需要让下面不进了，因为currentScope失效（下面那个同理）
 		}
@@ -757,7 +757,7 @@ VariableValue VMWorker::VMWorkerTask() {
 				}
 			}
 			if (!success) {
-				ThrowError(L"无法执行break语句，无目标作用域可跳转");
+				ThrowError("无法执行break语句，无目标作用域可跳转");
 			}
 			continue;
 		}
@@ -852,7 +852,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			uint8_t op_argCount = *(currentFn->byteCode + rawep + 1);
 			VariableValue* funcRefVal = currentFn->virtualStack[currentFn->virtualStack.size() - 1 - op_argCount].getRawVariable();
 			if (funcRefVal->getContentType() != ValueType::FUNCTION) {
-				ThrowError(L"not a function");
+				ThrowError("not a function");
 				continue;
 			}
 
@@ -870,7 +870,7 @@ VariableValue VMWorker::VMWorkerTask() {
 
 			//不是可变参数方法检查参数数量
 			if (argCount != DYNAMIC_ARGUMENT && op_argCount != argCount) {
-				ThrowError(L"function argument count not equal.");
+				ThrowError("function argument count not equal.");
 				continue;
 			}
 
@@ -964,7 +964,7 @@ VariableValue VMWorker::VMWorkerTask() {
 				VariableValue exmsg;
 				exmsg.varType = ValueType::REF;
 				exmsg.content.ref = VMInstance->currentGC->GC_NewObject(ValueType::STRING);
-				exmsg.content.ref->implement.stringImpl = L"exception has thrown";
+				exmsg.content.ref->implement.stringImpl = "exception has thrown";
 				ThrowError(exmsg);
 			}
 
@@ -997,7 +997,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			VariableValue* right = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable();
 			VariableValue* left = currentFn->virtualStack[currentFn->virtualStack.size() - 2].getRawVariable();
 			if (left->readOnly) {
-				ThrowError(L"try assign readonly value");
+				ThrowError("try assign readonly value");
 				continue;
 			}
 			//如果是函数就处理闭包
@@ -1033,8 +1033,8 @@ VariableValue VMWorker::VMWorkerTask() {
 			if (currentFn->localVarNames) {
 				uint16_t id = currentFn->functionInfo->packageId;
 				auto& strPool = VMInstance->loadedPackages[id].ConstStringPool;
-				std::wstring& nameString = strPool[nameStringIndex]->implement.stringImpl;
-				ThrowError(nameString + L" has already been declared");
+				std::string& nameString = strPool[nameStringIndex]->implement.stringImpl;
+				ThrowError(nameString + " has already been declared");
 				continue;
 			}
 			*/
@@ -1050,7 +1050,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			VariableValue v;
 			v.varType = ValueType::NULLREF;
 
-			std::wstring str = VMInstance->loadedPackages[packageId].ConstStringPool[str_id]->implement.stringImpl;
+			std::string str = VMInstance->loadedPackages[packageId].ConstStringPool[str_id]->implement.stringImpl;
 
 			//currentScope->scopeVariables[str] = v;
 
@@ -1075,11 +1075,11 @@ VariableValue VMWorker::VMWorkerTask() {
 		case OpCode::LOAD_VAR:
 		{
 			VariableValue* varName = currentFn->virtualStack.back().getRawVariable();
-			std::wstring str = varName->content.ref->implement.stringImpl;
+			std::string str = varName->content.ref->implement.stringImpl;
 
 			VariableValue* find = __vmworker_find_variable(*this, str);
 			if (!find) {
-				ThrowError(L"cannot find symbol:" + str);
+				ThrowError("cannot find symbol:" + str);
 				continue;
 			}
 			VariableValue v;
@@ -1153,7 +1153,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			}
 
 			if (result.varType == ValueType::NULLREF) {
-				ThrowError(L"can not find symbol:" + fieldName->ToString());
+				ThrowError("can not find symbol:" + fieldName->ToString());
 				continue;
 			}
 
@@ -1166,15 +1166,15 @@ VariableValue VMWorker::VMWorkerTask() {
 		{
 			/*
 			uint32_t length = *(uint32_t*)(currentFn->byteCode + rawep + 1);
-			wchar_t* str_start = (wchar_t*)(currentFn->byteCode + rawep + sizeof(uint32_t) + 1);
-			std::wstring str(str_start, length);
+			char* str_start = (char*)(currentFn->byteCode + rawep + sizeof(uint32_t) + 1);
+			std::string str(str_start, length);
 			VMObject vm_str(ValueType::STRING); //创建不归GC管理的常量字符串对象
 			vm_str.implement.stringImpl = str;
 			currentFn->constStringPool.push_back(vm_str);
-			currentScope->ep += 1 + 4 + length * sizeof(wchar_t); //头+4字节长度+内容
+			currentScope->ep += 1 + 4 + length * sizeof(char); //头+4字节长度+内容
 			*/
 			//废弃的指令，抛出错误
-			ThrowError(L"CONST_STR code not supported");
+			ThrowError("CONST_STR code not supported");
 			break;
 		}
 		default:
@@ -1202,6 +1202,9 @@ VariableValue VMWorker::VMWorkerTask() {
 #pragma endregion
 
 
+//存储系统函数全局单例
+std::vector<ScriptFunction*> VM::SystemFunctionObjects;
+
 //全局单例初始化，static类型
 bool single_instance_man_inited = false;
 void VM::InitSingleInstanceManager() {
@@ -1228,6 +1231,11 @@ void VM::DestroySingleInstanceManager() {
 	BuildinStdlib_Destroy();
 }
 
+void VM::CleanUp()
+{
+	VM::DestroySingleInstanceManager();
+}
+
 VM::VM(GC* gc) {
 	//初始化全局单例的管理器
 	InitSingleInstanceManager();
@@ -1243,7 +1251,7 @@ VM::VM(GC* gc) {
 	auto globalObject = currentGC->GC_NewObject(ValueType::OBJECT);
 	auto globalObjectRef = CreateReferenceVariable(globalObject);
 	globalObjectRef.readOnly = true;
-	std::wstring globalObjectName = L"global";
+	std::string globalObjectName = "global";
 	storeGlobalSymbol(globalObjectName, globalObjectRef);
 
 
@@ -1263,12 +1271,18 @@ VM::~VM()
 	}
 
 	globalSymbols.clear();
+	for (auto worker : workers) {
+		worker->~VMWorker();
+		platform.MemoryFree(worker);
+	}
 	workers.clear();
 	tasks.clear();
+	UnloadAllPackage();
 	currentGC->GC_Collect();
+	
 }
 
-VariableValue* VM::getGlobalSymbol(std::wstring& symbol) {
+VariableValue* VM::getGlobalSymbol(std::string& symbol) {
 	platform.MutexLock(globalSymbolLock);
 	VariableValue* ret = NULL;
 	auto it = globalSymbols.find(symbol);
@@ -1278,7 +1292,7 @@ VariableValue* VM::getGlobalSymbol(std::wstring& symbol) {
 	platform.MutexUnlock(globalSymbolLock);
 	return ret;
 }
-void VM::storeGlobalSymbol(std::wstring& symbol, VariableValue& value) {
+void VM::storeGlobalSymbol(std::string& symbol, VariableValue& value) {
 	platform.MutexLock(globalSymbolLock);
 	globalSymbols[symbol] = value;
 	platform.MutexUnlock(globalSymbolLock);
@@ -1287,7 +1301,7 @@ void VM::storeGlobalSymbol(std::wstring& symbol, VariableValue& value) {
 VariableValue VM::CreateSystemFunc(uint8_t argCount, SystemFuncDef implement) {
 	ScriptFunction* sfn = (ScriptFunction*)platform.MemoryAlloc(sizeof(ScriptFunction));
 	new (sfn) ScriptFunction(ScriptFunction::System);
-	//this->ScriptFunctionObjects.push_back(sfn);
+	VM::SystemFunctionObjects.push_back(sfn);
 	sfn->argumentCount = argCount;
 	sfn->funcImpl.system_func = implement;
 	VariableValue fnref;
@@ -1306,9 +1320,9 @@ void VM::VM_UnhandledException(VMObject* exceptionObject, VMWorker* worker)
 
 	//std::cout << "\r\nUnhandled Exception : " << << exceptionObject->ToString().c_str() << "\r\n";
 
-	std::wstring errorString = exceptionObject->ToString();
+	std::string errorString = exceptionObject->ToString();
 
-	printf("\r\nUnhandled Exception %s Process Waitting...\r\n", wstring_to_string(errorString).c_str());
+	printf("\r\nUnhandled Exception %s Process Waitting...\r\n", errorString.c_str());
 
 	worker->getCallingLink().clear(); //终止worker
 }

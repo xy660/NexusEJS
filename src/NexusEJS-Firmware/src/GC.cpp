@@ -64,6 +64,9 @@ void GC::StopTheWorld() {
 		}
 		else {
 			// 从vector中移除已完成的worker
+			VMWorker* deadWorker = *it;
+			deadWorker->~VMWorker();
+			platform.MemoryFree(deadWorker);
 			it = bindingVM->workers.erase(it);
 		}
 	}
@@ -128,7 +131,7 @@ VMObject* GC::GC_NewObject(ValueType::IValueType type) {
 	return alloc;
 }
 
-VMObject* GC::GC_NewStringObject(std::wstring str) {
+VMObject* GC::GC_NewStringObject(std::string str) {
 	VMObject* vmo = GC_NewObject(ValueType::STRING);
 	vmo->implement.stringImpl = str;
 	return vmo;
@@ -172,7 +175,7 @@ void DFS_MarkObject(std::stack<VMObject*>& dfsStack,std::unordered_set<VMObject*
 			}
 		}
 		else if (obj->type == ValueType::OBJECT) {
-			//auto& objmap = std::get<std::unordered_map<std::wstring, VariableValue>>(obj->implement);
+			//auto& objmap = std::get<std::unordered_map<std::string, VariableValue>>(obj->implement);
 			auto& objmap = obj->implement.objectImpl;
 			for (auto& pair : objmap) {
 				VariableValue* current = pair.second.getRawVariable();
@@ -224,17 +227,6 @@ void GC::Internal_GC_Collect() {
 
 	StopTheWorld();
 
-	/*
-	for (auto vmObject : allObjects) { //将所有非全局/特殊对象的标记重置
-		if (vmObject->type == ValueType::FUNCTION) { //方法都是在全局符号表的，不需要回收
-			vmObject->marked = true;
-		}
-		else {
-			vmObject->marked = false;
-		}
-	}
-	*/
-
 	std::stack<VMObject*> dfsStack;
 
 	//遍历全局符号表的所有引用对象
@@ -248,7 +240,7 @@ void GC::Internal_GC_Collect() {
 
 
 	//遍历栈起点，将所有持有的局部变量设置为root
-	for (auto& worker : bindingVM->workers) {
+	for (auto worker : bindingVM->workers) {
 		for (auto& fnFrame : worker->getCallingLink()) {
 
 			for (auto& variable_ref : fnFrame.virtualStack) {
@@ -290,7 +282,7 @@ void GC::Internal_GC_Collect() {
 	//开始标记所有不可达但携带finalize方法的对象引用图，此时认为他还是有效对象
 	for (VMObject* vmo : allObjects) {
 		if (!vmo->marked && vmo->type == ValueType::OBJECT) {
-			auto findFinalize = vmo->implement.objectImpl.find(L"finalize");
+			auto findFinalize = vmo->implement.objectImpl.find("finalize");
 			if (findFinalize != vmo->implement.objectImpl.end()) {
 				//这里使用getContentType判断是否是函数因为可能存在闭包的对象实现函数
 				if ((*findFinalize).second.getContentType() == ValueType::FUNCTION) {
@@ -342,7 +334,7 @@ void GC::Internal_GC_Collect() {
 	printf("清理前数量：%d  清理后数量：%d  一共清理：%d\n", count, allObjects.size(), count - allObjects.size());
 	printf("Finalize Object Queue:\n");
 	for (VMObject* needFinalizeObject : finalizeQueue) {
-		wprintf(L"%ws\n",needFinalizeObject->ToString().c_str());
+		wprintf("%ws\n",needFinalizeObject->ToString().c_str());
 	}
 
 	printf("=================\n");
@@ -354,9 +346,9 @@ void GC::Internal_GC_Collect() {
 
 	for (VMObject* needFinalizeObject : finalizeQueue) {
 		
-		//ScriptFunction* finalizeFunc = needFinalizeObject->implement.objectImpl[L"finalize"].content.function;
+		//ScriptFunction* finalizeFunc = needFinalizeObject->implement.objectImpl["finalize"].content.function;
 		
-		auto& finalizeFuncMember = needFinalizeObject->implement.objectImpl[L"finalize"];
+		auto& finalizeFuncMember = needFinalizeObject->implement.objectImpl["finalize"];
 
 		ScriptFunction* finalizeFunc;
 		if (finalizeFuncMember.varType == ValueType::REF) {
@@ -393,13 +385,13 @@ void GC::Internal_GC_Collect() {
 		}
 		else {
 #ifdef _DEBUG
-			wprintf(L"对象finalize方法签名不正确 %ws  参数数：%d\n", needFinalizeObject->ToString().c_str(), finalizeFunc->argumentCount);
+			printf("对象finalize方法签名不正确 %ws  参数数：%d\n", needFinalizeObject->ToString().c_str(), finalizeFunc->argumentCount);
 #endif	
 		}
 
 		//移除finalize字段，这样下次就会被直接清理
 		if (allowFinalize) {
-			needFinalizeObject->implement.objectImpl.erase(L"finalize");
+			needFinalizeObject->implement.objectImpl.erase("finalize");
 		}
 	}
 
@@ -424,7 +416,7 @@ VariableValue GC::InvokeBytecodeFinalizeFunc(ByteCodeFunction& func,VMObject*thi
 	defaultScope.ep = 0;
 	defaultScope.spStart = 0;
 	defaultScope.localvarStart = 0;
-	frame.functionEnvSymbols[L"this"] = CreateReferenceVariable(thisValue);
+	frame.functionEnvSymbols["this"] = CreateReferenceVariable(thisValue);
 	frame.scopeStack.push_back(defaultScope);
 	worker.getCallingLink().push_back(frame);
 	return worker.VMWorkerTask();

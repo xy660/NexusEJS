@@ -129,11 +129,11 @@ void ESP32_Platform_Init(){
         return (float)esp_get_free_heap_size() / (float)heap_caps_get_total_size(MALLOC_CAP_8BIT);
     };
     printf("FS.begin:%d\n",SPIFFS.begin(true));
-    platform.FileExist = [](std::wstring& fileName) -> bool{
-        return SPIFFS.exists(wstring_to_string(fileName).c_str());
+    platform.FileExist = [](std::string& fileName) -> bool{
+        return SPIFFS.exists(fileName.c_str());
     };
-    platform.ReadFile = [](std::wstring& fileName,uint32_t* fileSize) -> uint8_t* {
-        auto file = SPIFFS.open(wstring_to_string(fileName).c_str());
+    platform.ReadFile = [](std::string& fileName,uint32_t* fileSize) -> uint8_t* {
+        auto file = SPIFFS.open(fileName.c_str());
         *fileSize = file.size();
         printf("FS.Read:%s size:%d\n",file.name(),file.size());
         char* buf = (char*)platform.MemoryAlloc(file.size());
@@ -183,9 +183,9 @@ void ESP32_Platform_Init(){
 
 void ESP32_GpioClass_Init(VM* VMInstance){
     VMObject* gpioClass = VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
-    gpioClass->implement.objectImpl[L"set"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
+    gpioClass->implement.objectImpl["set"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
         if(args[0].getContentType() != ValueType::NUM || args[1].getContentType() != ValueType::BOOL){
-            currentWorker->ThrowError(L"Gpio.set: invalid arguments");
+            currentWorker->ThrowError("Gpio.set: invalid arguments");
         }
         uint8_t pin = (uint8_t)args[0].content.number;
         uint8_t val = args[1].content.boolean ? HIGH : LOW;
@@ -193,9 +193,9 @@ void ESP32_GpioClass_Init(VM* VMInstance){
         digitalWrite(pin,val);
         return VariableValue();
     });
-    gpioClass->implement.objectImpl[L"read"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
+    gpioClass->implement.objectImpl["read"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
         if(args[0].getContentType() != ValueType::NUM){
-            currentWorker->ThrowError(L"Gpio.read: pin must be number");
+            currentWorker->ThrowError("Gpio.read: pin must be number");
         }
         uint8_t pin = (uint8_t)args[0].content.number;
         pinMode(pin,INPUT_PULLDOWN);
@@ -204,9 +204,9 @@ void ESP32_GpioClass_Init(VM* VMInstance){
     
     analogReadResolution(ANALOG_READ_RESOLUTION); //默认10bit分辨率
     //返回归一化的模拟量读取
-    gpioClass->implement.objectImpl[L"readAnalog"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
+    gpioClass->implement.objectImpl["readAnalog"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
         if(args[0].getContentType() != ValueType::NUM){
-            currentWorker->ThrowError(L"Gpio.read: pin must be number");
+            currentWorker->ThrowError("Gpio.read: pin must be number");
         }
         uint8_t pin = (uint8_t)args[0].content.number;
         pinMode(pin,INPUT_PULLDOWN);
@@ -214,9 +214,9 @@ void ESP32_GpioClass_Init(VM* VMInstance){
         return CreateNumberVariable((double)digitalRead(pin) / (double)ANALOG_READ_RESOLUTION);
     });
     //返回原始数据的模拟量读取
-    gpioClass->implement.objectImpl[L"readAnalogRaw"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
+    gpioClass->implement.objectImpl["readAnalogRaw"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
         if(args[0].getContentType() != ValueType::NUM){
-            currentWorker->ThrowError(L"Gpio.read: pin must be number");
+            currentWorker->ThrowError("Gpio.read: pin must be number");
         }
         uint8_t pin = (uint8_t)args[0].content.number;
         pinMode(pin,INPUT_PULLDOWN);
@@ -233,11 +233,11 @@ void ESP32_GpioClass_Init(VM* VMInstance){
     for(int i = 0;i < MAX_PWM_CHANNELS;i++){
         pwmChannelsArray->implement.arrayImpl.push_back(CreateReferenceVariable(&pwmChannelObjects[i]));
     }
-    gpioClass->implement.objectImpl[L"pwmChannels"] = CreateReferenceVariable(pwmChannelsArray);
+    gpioClass->implement.objectImpl["pwmChannels"] = CreateReferenceVariable(pwmChannelsArray);
 #endif
 
 
-    std::wstring className = L"Gpio";
+    std::string className = "Gpio";
     auto ref = CreateReferenceVariable(gpioClass);
     VMInstance->storeGlobalSymbol(className,ref);
 }

@@ -63,7 +63,7 @@ public:
 
 	void GCInit(VM* bindVM);
 	VMObject* GC_NewObject(ValueType::IValueType type);
-	VMObject* GC_NewStringObject(std::wstring str);
+	VMObject* GC_NewStringObject(std::string str);
 	void GC_DeleteObject(VMObject* vm_object);
 
 	void GC_FreeObject(VMObject* vm_object);

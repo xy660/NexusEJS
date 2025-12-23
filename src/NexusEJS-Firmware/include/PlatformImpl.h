@@ -16,8 +16,8 @@ typedef bool (*MutexTryLockDef)(void* mutex);
 typedef void (*MutexUnlockDef)(void* mutex);
 typedef void (*MutexDestroyDef)(void* mutex);
 typedef float (*MemoryFreePercentDef)();
-typedef uint8_t* (*ReadFileDef)(std::wstring& wFileName,uint32_t* outFileSize);
-typedef bool (*FileExistDef)(std::wstring& wFileName);
+typedef uint8_t* (*ReadFileDef)(std::string& wFileName,uint32_t* outFileSize);
+typedef bool (*FileExistDef)(std::string& wFileName);
 
 //目标平台需要实现的抽象函数
 class PlatformImpl

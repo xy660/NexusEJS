@@ -41,11 +41,10 @@ static std::vector<std::string> _dbg_split(const std::string& str) {
 }
 
 static bool _get_id_by_name(uint16_t* out_id, std::string& name, VM* vm, uint16_t packageId) {
-	auto wname = string_to_wstring(name);
 	auto& vec = vm->loadedPackages[packageId].ConstStringPool;
 	uint32_t id = 0;
 	for (auto& str : vec) {
-		if (str->type == ValueType::STRING && str->implement.stringImpl == wname) {
+		if (str->type == ValueType::STRING && str->implement.stringImpl == name) {
 			*out_id = id;
 			return true;
 		}
@@ -143,8 +142,8 @@ void DumpFrame(VMWorker* worker) {
 	// env
 	for (auto& env_pair : currentFn.functionEnvSymbols) {
 		oss.str("");
-		oss << "var:[" << wstring_to_string(env_pair.first) << "]"
-			<< wstring_to_string(env_pair.second.ToString());
+		oss << "var:[" << env_pair.first << "]"
+			<< env_pair.second.ToString();
 		debuggerImpl.SendToDebugger(oss.str().c_str());
 	}
 
@@ -156,8 +155,8 @@ void DumpFrame(VMWorker* worker) {
 		auto& varValue = currentFn.localVariables[i];
 
 		oss.str("");
-		oss << "var:[" << wstring_to_string(name) << "]"
-			<< wstring_to_string(varValue.ToString());
+		oss << "var:[" << name << "]"
+			<< varValue.ToString();
 		debuggerImpl.SendToDebugger(oss.str().c_str());
 	}
 
@@ -166,7 +165,7 @@ void DumpFrame(VMWorker* worker) {
 	for (auto& varb : currentFn.virtualStack) {
 		stki++;
 		oss.str("");
-		oss << "stk:[" << stki << "]" << wstring_to_string(varb.ToString());
+		oss << "stk:[" << stki << "]" << varb.ToString();
 		debuggerImpl.SendToDebugger(oss.str().c_str());
 	}
 
@@ -187,13 +186,13 @@ void DumpStack(VMWorker* worker) {
 	for (int i = callFrames.size() - 1; i >= 0; i--) {
 		auto& fnFrame = callFrames[i];
 		stream << "callstk:";
-		stream << "at " << wstring_to_string(fnFrame.functionInfo->funcName) << "(";
+		stream << "at " << fnFrame.functionInfo->funcName << "(";
 		for (int argIndex = 0; argIndex < fnFrame.functionInfo->arguments.size(); argIndex++) {
 			if (argIndex != 0) stream << ",";
 			auto argName = worker->VMInstance->loadedPackages[fnFrame.functionInfo->packageId].ConstStringPool[fnFrame.functionInfo->arguments[argIndex]]->ToString();
-			stream << wstring_to_string(argName);
+			stream << argName;
 			stream << "=";
-			stream << wstring_to_string(fnFrame.localVariables[argIndex].ToString());
+			stream << fnFrame.localVariables[argIndex].ToString();
 		}
 		stream << ") offset:" << fnFrame.scopeStack.back().byteCodeStart + fnFrame.scopeStack.back().ep;
 		debuggerImpl.SendToDebugger(stream.str().c_str());
@@ -207,8 +206,8 @@ void DumpGlobal(VMWorker* worker) {
 	std::stringstream stream;
 	for (auto& pair : vm->globalSymbols) {
 		stream << "var:";
-		stream << "[" << wstring_to_string(pair.first) << "]";
-		stream << wstring_to_string(pair.second.ToString()) << "\n";
+		stream << "[" << pair.first << "]";
+		stream << pair.second.ToString() << "\n";
 		debuggerImpl.SendToDebugger(stream.str().c_str());
 		stream.str("");
 	}
@@ -280,7 +279,7 @@ void* DebuggerProc(void* param) {
 				char* endPtr = 0;
 				uint32_t packageId = 0;
 				for (auto& package : vm->loadedPackages) {
-					if (wstring_to_string(package.second.packageName) == split[1]) {
+					if (package.second.packageName == split[1]) {
 						packageId = package.first;
 						break;
 					}
@@ -305,7 +304,7 @@ void* DebuggerProc(void* param) {
 				char* endPtr = 0;
 				uint32_t packageId = 0;
 				for (auto& package : vm->loadedPackages) {
-					if (wstring_to_string(package.second.packageName) == split[1]) {
+					if (package.second.packageName == split[1]) {
 						packageId = package.first;
 						break;
 					}
@@ -332,14 +331,14 @@ void* DebuggerProc(void* param) {
 						for (auto& pck : vm->loadedPackages) {
 							if (brk.packageId == pck.first) {
 								package = &pck.second;
-								packageName = wstring_to_string(pck.second.packageName);
+								packageName = pck.second.packageName;
 								break;
 							}
 						}
 						if (!package) {
 							continue;
 						}
-						std::string fnName = wstring_to_string(package->ConstStringPool[brk.functionNameId]->implement.stringImpl);
+						std::string fnName = package->ConstStringPool[brk.functionNameId]->implement.stringImpl;
 						stream << packageName;
 						stream << " ";
 						stream << fnName;

@@ -9,5 +9,5 @@
 
 void ArrayManager_Init();
 void ArrayManager_Destroy();
-VariableValue GetArraySymbol(std::wstring& symbol, VMObject* owner);
+VariableValue GetArraySymbol(std::string& symbol, VMObject* owner);
 

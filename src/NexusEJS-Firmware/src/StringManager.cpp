@@ -7,12 +7,12 @@
 //ARRAY对象符号表
 //返回方法包装的VMObject对象，或
 
-std::unordered_map<std::wstring, VariableValue> string_symbol_map;
+std::unordered_map<std::string, VariableValue> string_symbol_map;
 std::vector<ScriptFunction*> stringman_script_function_alloc;
 
 void* StringValSymbolMapLock;
 
-void StringSymbolFuncAdd(std::wstring name, SystemFuncDef func, uint16_t argumentCount) {
+void StringSymbolFuncAdd(std::string name, SystemFuncDef func, uint16_t argumentCount) {
 
 	VariableValue fnref;
 	fnref.varType = ValueType::FUNCTION;
@@ -24,47 +24,127 @@ void StringSymbolFuncAdd(std::wstring name, SystemFuncDef func, uint16_t argumen
 	string_symbol_map[name] = fnref;
 
 }
-
+/*
 void StringManager_Init()
 {
-	StringValSymbolMapLock = platform.MutexCreate();
+    StringValSymbolMapLock = platform.MutexCreate();
 
-	StringSymbolFuncAdd(L"charAt", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-		if (args[0].getRawVariable()->varType != ValueType::NUM) {
-			currentWorker->ThrowError(L"charAt(index) only accept number");
-			return VariableValue();
-		 }
-		uint32_t index = (uint32_t)args[0].content.number;
-		std::wstring& impl = thisValue->implement.stringImpl;
-		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::wstring(&impl[index], 1)));
-	}, 1);
-
-    
-
-    // charCodeAt
-    StringSymbolFuncAdd(L"charCodeAt", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        if (args.size() > 0 && args[0].getRawVariable()->varType != ValueType::NUM) {
-            currentWorker->ThrowError(L"charCodeAt(index) only accept number");
+    StringSymbolFuncAdd("charAt", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args[0].getRawVariable()->varType != ValueType::NUM) {
+            currentWorker->ThrowError("charAt(index) only accept number");
             return VariableValue();
         }
-        uint32_t index = args.size() > 0 ? (uint32_t)args[0].content.number : 0;
-        std::wstring& impl = thisValue->implement.stringImpl;
-        if (index >= impl.length()) {
-            return CreateNumberVariable(std::numeric_limits<double>::quiet_NaN());
+        int32_t index = (int32_t)args[0].content.number;
+        std::string& str = thisValue->implement.stringImpl;
+
+        if (index < 0 || index >= str.length()) {
+            currentWorker->ThrowError("charAt out of bound");
+            return VariableValue();
         }
-        return CreateNumberVariable((double)impl[index]);
+
+        //按JavaScript字符索引
+        int charPos = 0;
+        for (size_t i = 0; i < str.length(); ) {
+            if (charPos == index) {
+                //获取完整的UTF-8字符
+                unsigned char c = str[i];
+                int charLen = 1;
+                if (c >= 0xF0) charLen = 4;
+                else if (c >= 0xE0) charLen = 3;
+                else if (c >= 0xC0) charLen = 2;
+
+                return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(
+                    str.substr(i, charLen)
+                ));
+            }
+
+            // 移动到下一个字符
+            unsigned char c = str[i];
+            if (c >= 0xF0) i += 4;
+            else if (c >= 0xE0) i += 3;
+            else if (c >= 0xC0) i += 2;
+            else i++;
+
+            charPos++;
+        }
+
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::string("")));
         }, 1);
 
-    StringSymbolFuncAdd(L"split", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        std::wstring& str = thisValue->implement.stringImpl;
+
+
+    // charCodeAt
+    StringSymbolFuncAdd("charCodeAt", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() > 0 && args[0].getRawVariable()->varType != ValueType::NUM) {
+            currentWorker->ThrowError("charCodeAt(index) only accept number");
+            return VariableValue();
+        }
+        int32_t index = args.size() > 0 ? (int32_t)args[0].content.number : 0;
+        std::string& str = thisValue->implement.stringImpl;
+
+        if (index < 0 || index >= str.length()) {
+            currentWorker->ThrowError("charCodeAt out of bound");
+            return VariableValue();
+        }
+
+        // 按JavaScript字符索引找到UTF-8字符
+        int charPos = 0;
+        for (size_t i = 0; i < str.length(); ) {
+            if (charPos == index) {
+                // 解码UTF-8字符
+                unsigned char c = str[i];
+                int codePoint = 0;
+
+                if (c < 0x80) {
+                    codePoint = c;
+                }
+                else if (c < 0xE0) {
+                    codePoint = ((c & 0x1F) << 6) | (str[i + 1] & 0x3F);
+                }
+                else if (c < 0xF0) {
+                    codePoint = ((c & 0x0F) << 12) | ((str[i + 1] & 0x3F) << 6) | (str[i + 2] & 0x3F);
+                }
+                else {
+                    codePoint = ((c & 0x07) << 18) | ((str[i + 1] & 0x3F) << 12) |
+                        ((str[i + 2] & 0x3F) << 6) | (str[i + 3] & 0x3F);
+                }
+
+                // 对于大于0xFFFF的字符，charCodeAt返回高代理项
+                if (codePoint > 0xFFFF) {
+                    // UTF-16代理对
+                    codePoint -= 0x10000;
+                    int highSurrogate = 0xD800 + (codePoint >> 10);
+                    int lowSurrogate = 0xDC00 + (codePoint & 0x3FF);
+                    // charCodeAt只返回索引处的码单元
+                    return CreateNumberVariable((double)highSurrogate);
+                }
+
+                return CreateNumberVariable((double)codePoint);
+            }
+
+            // 移动到下一个字符
+            unsigned char c = str[i];
+            if (c >= 0xF0) i += 4;
+            else if (c >= 0xE0) i += 3;
+            else if (c >= 0xC0) i += 2;
+            else i++;
+
+            charPos++;
+        }
+
+        return CreateNumberVariable(std::numeric_limits<double>::quiet_NaN());
+        }, 1);
+
+    StringSymbolFuncAdd("split", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string& str = thisValue->implement.stringImpl;
 
         // 处理参数
-        std::wstring separator = L","; // 默认分隔符为逗号
+        std::string separator = ","; // 默认分隔符为逗号
         int limit = -1; // 默认无限制
 
         if (args.size() >= 1) {
             if (args[0].getContentType() != ValueType::STRING) {
-                currentWorker->ThrowError(L"split(separator, limit) first argument must be string");
+                currentWorker->ThrowError("split(separator, limit) first argument must be string");
                 return VariableValue();
             }
             separator = args[0].getRawVariable()->content.ref->implement.stringImpl;
@@ -72,7 +152,7 @@ void StringManager_Init()
 
         if (args.size() >= 2) {
             if (args[1].getRawVariable()->varType != ValueType::NUM) {
-                currentWorker->ThrowError(L"split(separator, limit) second argument must be number");
+                currentWorker->ThrowError("split(separator, limit) second argument must be number");
                 return VariableValue();
             }
             limit = (int)args[1].content.number;
@@ -85,7 +165,7 @@ void StringManager_Init()
         // 空字符串特殊情况
         if (str.empty()) {
             if (limit != 0) {
-                VMObject* emptyStrObj = currentWorker->VMInstance->currentGC->GC_NewStringObject(std::wstring(L""));
+                VMObject* emptyStrObj = currentWorker->VMInstance->currentGC->GC_NewStringObject(std::string(""));
                 resultArray.push_back(CreateReferenceVariable(emptyStrObj));
             }
             return CreateReferenceVariable(arrayObj);
@@ -94,9 +174,9 @@ void StringManager_Init()
         // 分隔符为空字符串，按字符分割
         if (separator.empty()) {
             int count = 0;
-            for (wchar_t ch : str) {
+            for (char ch : str) {
                 if (limit != -1 && count >= limit) break;
-                VMObject* charObj = currentWorker->VMInstance->currentGC->GC_NewStringObject(std::wstring(1, ch));
+                VMObject* charObj = currentWorker->VMInstance->currentGC->GC_NewStringObject(std::string(1, ch));
                 resultArray.push_back(CreateReferenceVariable(charObj));
                 count++;
             }
@@ -109,7 +189,7 @@ void StringManager_Init()
         int splitCount = 0;
         bool limitReached = false;
 
-        while (end != std::wstring::npos && !limitReached) {
+        while (end != std::string::npos && !limitReached) {
             // 检查是否达到限制
             if (limit != -1 && splitCount >= limit - 1) {
                 limitReached = true;
@@ -139,8 +219,8 @@ void StringManager_Init()
         }, DYNAMIC_ARGUMENT);
 
     // concat
-    StringSymbolFuncAdd(L"concat", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        std::wstring result = thisValue->implement.stringImpl;
+    StringSymbolFuncAdd("concat", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string result = thisValue->implement.stringImpl;
         for (auto& arg : args) {
             result += arg.ToString();
         }
@@ -148,14 +228,14 @@ void StringManager_Init()
         }, DYNAMIC_ARGUMENT);
 
     // indexOf
-    StringSymbolFuncAdd(L"indexOf", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    StringSymbolFuncAdd("indexOf", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::STRING) {
-            currentWorker->ThrowError(L"indexOf(searchString) requires a string argument");
+            currentWorker->ThrowError("indexOf(searchString) requires a string argument");
             return VariableValue();
         }
 
-        std::wstring& str = thisValue->implement.stringImpl;
-        std::wstring& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
         size_t fromIndex = 0;
 
         if (args.size() > 1 && args[1].getRawVariable()->varType == ValueType::NUM) {
@@ -167,18 +247,18 @@ void StringManager_Init()
         }
 
         size_t pos = str.find(searchStr, fromIndex);
-        return CreateNumberVariable(pos == std::wstring::npos ? -1.0 : (double)pos);
+        return CreateNumberVariable(pos == std::string::npos ? -1.0 : (double)pos);
         }, 1);
 
     // lastIndexOf
-    StringSymbolFuncAdd(L"lastIndexOf", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    StringSymbolFuncAdd("lastIndexOf", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::STRING) {
-            currentWorker->ThrowError(L"lastIndexOf(searchString) requires a string argument");
+            currentWorker->ThrowError("lastIndexOf(searchString) requires a string argument");
             return VariableValue();
         }
 
-        std::wstring& str = thisValue->implement.stringImpl;
-        std::wstring& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
         size_t fromIndex = str.length() - 1;
 
         if (args.size() > 1 && args[1].getRawVariable()->varType == ValueType::NUM) {
@@ -186,20 +266,20 @@ void StringManager_Init()
         }
 
         size_t pos = str.rfind(searchStr, std::min(fromIndex, str.length() - 1));
-        return CreateNumberVariable(pos == std::wstring::npos ? -1.0 : (double)pos);
+        return CreateNumberVariable(pos == std::string::npos ? -1.0 : (double)pos);
         }, 1);
 
     // substring
-    StringSymbolFuncAdd(L"substring", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        std::wstring& str = thisValue->implement.stringImpl;
+    StringSymbolFuncAdd("substring", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string& str = thisValue->implement.stringImpl;
 
         if (args.size() == 0) {
-            currentWorker->ThrowError(L"substring requires at least 1 argument");
+            currentWorker->ThrowError("substring requires at least 1 argument");
             return VariableValue();
         }
 
         if (args[0].getRawVariable()->varType != ValueType::NUM) {
-            currentWorker->ThrowError(L"substring indices must be numbers");
+            currentWorker->ThrowError("substring indices must be numbers");
             return VariableValue();
         }
 
@@ -223,31 +303,35 @@ void StringManager_Init()
         }, DYNAMIC_ARGUMENT);
 
     // toLowerCase
-    StringSymbolFuncAdd(L"toLowerCase", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        std::wstring str = thisValue->implement.stringImpl;
-        std::transform(str.begin(), str.end(), str.begin(), ::towlower);
+    StringSymbolFuncAdd("toLowerCase", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string str = thisValue->implement.stringImpl;
+        // 修复：使用tolower而不是towlower
+        std::transform(str.begin(), str.end(), str.begin(),
+            [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
         return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(str));
         }, 0);
 
     // toUpperCase
-    StringSymbolFuncAdd(L"toUpperCase", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        std::wstring str = thisValue->implement.stringImpl;
-        std::transform(str.begin(), str.end(), str.begin(), ::towupper);
+    StringSymbolFuncAdd("toUpperCase", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string str = thisValue->implement.stringImpl;
+        // 修复：使用toupper而不是towupper
+        std::transform(str.begin(), str.end(), str.begin(),
+            [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(str));
         }, 0);
 
     // trim
-    StringSymbolFuncAdd(L"trim", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        std::wstring str = thisValue->implement.stringImpl;
+    StringSymbolFuncAdd("trim", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string str = thisValue->implement.stringImpl;
 
         // 去除前导空白
-        size_t start = str.find_first_not_of(L" \t\n\r\f\v");
-        if (start == std::wstring::npos) {
-            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::wstring(L"")));
+        size_t start = str.find_first_not_of(" \t\n\r\f\v");
+        if (start == std::string::npos) {
+            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::string("")));
         }
 
         // 去除尾部空白
-        size_t end = str.find_last_not_of(L" \t\n\r\f\v");
+        size_t end = str.find_last_not_of(" \t\n\r\f\v");
 
         return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(
             str.substr(start, end - start + 1)
@@ -255,14 +339,14 @@ void StringManager_Init()
         }, 0);
 
     // startsWith
-    StringSymbolFuncAdd(L"startsWith", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    StringSymbolFuncAdd("startsWith", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::STRING) {
-            currentWorker->ThrowError(L"startsWith requires a string argument");
+            currentWorker->ThrowError("startsWith requires a string argument");
             return VariableValue();
         }
 
-        std::wstring& str = thisValue->implement.stringImpl;
-        std::wstring& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
         size_t pos = 0;
 
         if (args.size() > 1 && args[1].getRawVariable()->varType == ValueType::NUM) {
@@ -278,14 +362,14 @@ void StringManager_Init()
         }, 1);
 
     // endsWith
-    StringSymbolFuncAdd(L"endsWith", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    StringSymbolFuncAdd("endsWith", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::STRING) {
-            currentWorker->ThrowError(L"endsWith requires a string argument");
+            currentWorker->ThrowError("endsWith requires a string argument");
             return VariableValue();
         }
 
-        std::wstring& str = thisValue->implement.stringImpl;
-        std::wstring& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
 
         if (searchStr.length() > str.length()) {
             return CreateBooleanVariable(false);
@@ -305,43 +389,43 @@ void StringManager_Init()
         }, 1);
 
     // includes
-    StringSymbolFuncAdd(L"includes", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    StringSymbolFuncAdd("includes", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::STRING) {
-            currentWorker->ThrowError(L"includes requires a string argument");
+            currentWorker->ThrowError("includes requires a string argument");
             return VariableValue();
         }
 
-        std::wstring& str = thisValue->implement.stringImpl;
-        std::wstring& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& searchStr = args[0].getRawVariable()->content.ref->implement.stringImpl;
         size_t pos = 0;
 
         if (args.size() > 1 && args[1].getRawVariable()->varType == ValueType::NUM) {
             pos = (size_t)args[1].content.number;
         }
 
-        bool result = (str.find(searchStr, pos) != std::wstring::npos);
+        bool result = (str.find(searchStr, pos) != std::string::npos);
         return CreateBooleanVariable(result);
         }, 1);
 
     // repeat
-    StringSymbolFuncAdd(L"repeat", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    StringSymbolFuncAdd("repeat", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
         if (args[0].getRawVariable()->varType != ValueType::NUM) {
-            currentWorker->ThrowError(L"repeat requires a number argument");
+            currentWorker->ThrowError("repeat requires a number argument");
             return VariableValue();
         }
 
         int count = (int)args[0].content.number;
         if (count < 0) {
-            currentWorker->ThrowError(L"repeat count must be non-negative");
+            currentWorker->ThrowError("repeat count must be non-negative");
             return VariableValue();
         }
 
         if (count == 0) {
-            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::wstring(L"")));
+            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::string("")));
         }
 
-        std::wstring& str = thisValue->implement.stringImpl;
-        std::wstring result;
+        std::string& str = thisValue->implement.stringImpl;
+        std::string result;
 
         for (int i = 0; i < count; i++) {
             result += str;
@@ -351,16 +435,16 @@ void StringManager_Init()
         }, 1);
 
     // slice
-    StringSymbolFuncAdd(L"slice", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-        std::wstring& str = thisValue->implement.stringImpl;
+    StringSymbolFuncAdd("slice", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string& str = thisValue->implement.stringImpl;
 
         if (args.size() == 0) {
-            currentWorker->ThrowError(L"slice requires at least 1 argument");
+            currentWorker->ThrowError("slice requires at least 1 argument");
             return VariableValue();
         }
 
         if (args[0].getRawVariable()->varType != ValueType::NUM) {
-            currentWorker->ThrowError(L"slice indices must be numbers");
+            currentWorker->ThrowError("slice indices must be numbers");
             return VariableValue();
         }
 
@@ -379,12 +463,467 @@ void StringManager_Init()
         end = std::min(end, (int)str.length());
 
         if (start >= end) {
-            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::wstring(L"")));
+            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(std::string("")));
         }
 
         return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(
             str.substr(start, end - start)
         ));
+        }, DYNAMIC_ARGUMENT);
+}
+
+*/
+// 辅助函数
+static size_t getUtf8CharPos(const std::string& str, int charIndex) {
+    int charCount = 0;
+    for (size_t i = 0; i < str.length();) {
+        if (charCount == charIndex) return i;
+        unsigned char c = (unsigned char)str[i];
+        if (c >= 0xF0) i += 4;
+        else if (c >= 0xE0) i += 3;
+        else if (c >= 0xC0) i += 2;
+        else i++;
+        charCount++;
+    }
+    return str.length();
+}
+
+static int getUtf8CharCount(const std::string& str) {
+    int charCount = 0;
+    for (size_t i = 0; i < str.length();) {
+        unsigned char c = (unsigned char)str[i];
+        if (c >= 0xF0) i += 4;
+        else if (c >= 0xE0) i += 3;
+        else if (c >= 0xC0) i += 2;
+        else i++;
+        charCount++;
+    }
+    return charCount;
+}
+
+static int getUtf8CharLength(unsigned char c) {
+    if (c < 0x80) return 1;
+    if (c < 0xE0) return 2;
+    if (c < 0xF0) return 3;
+    return 4;
+}
+
+void StringManager_Init()
+{
+    StringValSymbolMapLock = platform.MutexCreate();
+
+    StringSymbolFuncAdd("charAt", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args[0].getRawVariable()->varType != ValueType::NUM) {
+            currentWorker->ThrowError("charAt(index) only accept number");
+            return VariableValue();
+        }
+        int index = (int)args[0].content.number;
+        std::string& str = thisValue->implement.stringImpl;
+
+        if (index < 0 || index >= str.length()) {
+            // JavaScript中，charAt(index)当索引越界时返回空字符串
+            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(""));
+        }
+
+        int charCount = 0;
+        for (size_t i = 0; i < str.length();) {
+            if (charCount == index) {
+                unsigned char c = (unsigned char)str[i];
+                int charLen = getUtf8CharLength(c);
+                if (i + charLen > str.length()) charLen = 1;
+                return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(
+                    str.substr(i, charLen)
+                ));
+            }
+
+            unsigned char c = (unsigned char)str[i];
+            i += getUtf8CharLength(c);
+            charCount++;
+        }
+
+        // 如果索引超出字符数，也返回空字符串
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(""));
+        }, 1);
+
+    StringSymbolFuncAdd("charCodeAt", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        int index = args.size() > 0 ? (int)args[0].content.number : 0;
+        std::string& str = thisValue->implement.stringImpl;
+
+        if (index < 0) {
+            return CreateNumberVariable(std::numeric_limits<double>::quiet_NaN());
+        }
+
+        int charCount = 0;
+        for (size_t i = 0; i < str.length();) {
+            if (charCount == index) {
+                unsigned char c = (unsigned char)str[i];
+                int codePoint = 0;
+
+                if (c < 0x80) {
+                    codePoint = c;
+                }
+                else if (c < 0xE0 && i + 1 < str.length()) {
+                    codePoint = ((c & 0x1F) << 6) | (str[i + 1] & 0x3F);
+                }
+                else if (c < 0xF0 && i + 2 < str.length()) {
+                    codePoint = ((c & 0x0F) << 12) | ((str[i + 1] & 0x3F) << 6) | (str[i + 2] & 0x3F);
+                }
+                else if (i + 3 < str.length()) {
+                    codePoint = ((c & 0x07) << 18) | ((str[i + 1] & 0x3F) << 12) |
+                        ((str[i + 2] & 0x3F) << 6) | (str[i + 3] & 0x3F);
+                }
+                else {
+                    codePoint = c;
+                }
+
+                return CreateNumberVariable((double)codePoint);
+            }
+
+            unsigned char c = (unsigned char)str[i];
+            i += getUtf8CharLength(c);
+            charCount++;
+        }
+
+        return CreateNumberVariable(std::numeric_limits<double>::quiet_NaN());
+        }, 1);
+
+    StringSymbolFuncAdd("split", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string& str = thisValue->implement.stringImpl;
+
+        std::string separator = ",";
+        int limit = -1;
+
+        if (args.size() >= 1) {
+            if (args[0].getContentType() != ValueType::STRING) {
+                currentWorker->ThrowError("split(separator, limit) first argument must be string");
+                return VariableValue();
+            }
+            separator = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        }
+
+        if (args.size() >= 2) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("split(separator, limit) second argument must be number");
+                return VariableValue();
+            }
+            limit = (int)args[1].content.number;
+        }
+
+        VMObject* arrayObj = currentWorker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
+        auto& resultArray = arrayObj->implement.arrayImpl;
+
+        if (separator.empty()) {
+            int count = 0;
+            for (size_t i = 0; i < str.length();) {
+                if (limit != -1 && count >= limit) break;
+
+                unsigned char c = (unsigned char)str[i];
+                int charLen = getUtf8CharLength(c);
+
+                VMObject* charObj = currentWorker->VMInstance->currentGC->GC_NewStringObject(str.substr(i, charLen));
+                resultArray.push_back(CreateReferenceVariable(charObj));
+
+                i += charLen;
+                count++;
+            }
+            return CreateReferenceVariable(arrayObj);
+        }
+
+        size_t start = 0;
+        size_t end = str.find(separator);
+        int splitCount = 0;
+
+        while (end != std::string::npos && (limit == -1 || splitCount < limit - 1)) {
+            resultArray.push_back(CreateReferenceVariable(
+                currentWorker->VMInstance->currentGC->GC_NewStringObject(str.substr(start, end - start))
+            ));
+            start = end + separator.length();
+            end = str.find(separator, start);
+            splitCount++;
+        }
+
+        if (limit != 0) {
+            resultArray.push_back(CreateReferenceVariable(
+                currentWorker->VMInstance->currentGC->GC_NewStringObject(str.substr(start))
+            ));
+        }
+
+        return CreateReferenceVariable(arrayObj);
+        }, DYNAMIC_ARGUMENT);
+
+    StringSymbolFuncAdd("concat", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string result = thisValue->implement.stringImpl;
+        for (auto& arg : args) {
+            result += arg.ToString();
+        }
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(result));
+        }, DYNAMIC_ARGUMENT);
+
+    StringSymbolFuncAdd("indexOf", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() < 1) {
+            currentWorker->ThrowError("indexOf requires at least 1 argument");
+            return VariableValue();
+        }
+        if (args[0].getContentType() != ValueType::STRING) {
+            currentWorker->ThrowError("indexOf requires a string argument");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& search = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        size_t from = 0;
+
+        if (args.size() > 1) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("indexOf second argument must be a number");
+                return VariableValue();
+            }
+            from = (size_t)args[1].content.number;
+        }
+
+        size_t pos = str.find(search, from);
+        return CreateNumberVariable(pos == std::string::npos ? -1.0 : (double)pos);
+        }, DYNAMIC_ARGUMENT);
+
+    // lastIndexOf - 动态参数，手动检查
+    StringSymbolFuncAdd("lastIndexOf", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() < 1) {
+            currentWorker->ThrowError("lastIndexOf requires at least 1 argument");
+            return VariableValue();
+        }
+        if (args[0].getContentType() != ValueType::STRING) {
+            currentWorker->ThrowError("lastIndexOf requires a string argument");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& search = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        size_t from = str.length() - 1;
+
+        if (args.size() > 1) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("lastIndexOf second argument must be a number");
+                return VariableValue();
+            }
+            from = (size_t)args[1].content.number;
+        }
+
+        size_t pos = str.rfind(search, std::min(from, str.length() - 1));
+        return CreateNumberVariable(pos == std::string::npos ? -1.0 : (double)pos);
+        }, DYNAMIC_ARGUMENT);
+
+    StringSymbolFuncAdd("substring", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() < 1) {
+            currentWorker->ThrowError("substring requires at least 1 argument");
+            return VariableValue();
+        }
+        if (args[0].getRawVariable()->varType != ValueType::NUM) {
+            currentWorker->ThrowError("substring indices must be numbers");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        int startChar = (int)args[0].content.number;
+        int endChar = getUtf8CharCount(str);
+
+        if (args.size() > 1) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("substring indices must be numbers");
+                return VariableValue();
+            }
+            endChar = (int)args[1].content.number;
+        }
+
+        if (startChar < 0) startChar = 0;
+        if (endChar < 0) endChar = 0;
+        if (startChar > endChar) std::swap(startChar, endChar);
+
+        int totalChars = getUtf8CharCount(str);
+        if (startChar > totalChars) startChar = totalChars;
+        if (endChar > totalChars) endChar = totalChars;
+
+        size_t startByte = getUtf8CharPos(str, startChar);
+        size_t endByte = getUtf8CharPos(str, endChar);
+
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(
+            str.substr(startByte, endByte - startByte)
+        ));
+        }, DYNAMIC_ARGUMENT);
+
+    StringSymbolFuncAdd("toLowerCase", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string str = thisValue->implement.stringImpl;
+        std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(str));
+        }, 0);
+
+    StringSymbolFuncAdd("toUpperCase", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string str = thisValue->implement.stringImpl;
+        std::transform(str.begin(), str.end(), str.begin(), ::toupper);
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(str));
+        }, 0);
+
+    StringSymbolFuncAdd("trim", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        std::string str = thisValue->implement.stringImpl;
+
+        size_t start = str.find_first_not_of(" \t\n\r\f\v");
+        if (start == std::string::npos) {
+            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(""));
+        }
+
+        size_t end = str.find_last_not_of(" \t\n\r\f\v");
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(
+            str.substr(start, end - start + 1)
+        ));
+        }, 0);
+
+    StringSymbolFuncAdd("startsWith", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() < 1) {
+            currentWorker->ThrowError("startsWith requires at least 1 argument");
+            return VariableValue();
+        }
+        if (args[0].getContentType() != ValueType::STRING) {
+            currentWorker->ThrowError("startsWith requires a string argument");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& search = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        size_t pos = 0;
+
+        if (args.size() > 1) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("startsWith second argument must be a number");
+                return VariableValue();
+            }
+            pos = (size_t)args[1].content.number;
+        }
+
+        if (pos >= str.length()) {
+            return CreateBooleanVariable(false);
+        }
+
+        bool result = (str.compare(pos, search.length(), search) == 0);
+        return CreateBooleanVariable(result);
+        }, DYNAMIC_ARGUMENT);
+
+    // endsWith - 动态参数，手动检查
+    StringSymbolFuncAdd("endsWith", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() < 1) {
+            currentWorker->ThrowError("endsWith requires at least 1 argument");
+            return VariableValue();
+        }
+        if (args[0].getContentType() != ValueType::STRING) {
+            currentWorker->ThrowError("endsWith requires a string argument");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& search = args[0].getRawVariable()->content.ref->implement.stringImpl;
+
+        if (search.length() > str.length()) {
+            return CreateBooleanVariable(false);
+        }
+
+        size_t pos = str.length() - search.length();
+
+        if (args.size() > 1) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("endsWith second argument must be a number");
+                return VariableValue();
+            }
+            pos = (size_t)args[1].content.number;
+            if (pos + search.length() > str.length()) {
+                pos = str.length() - search.length();
+            }
+        }
+
+        bool result = (str.compare(pos, search.length(), search) == 0);
+        return CreateBooleanVariable(result);
+        }, DYNAMIC_ARGUMENT);
+
+    StringSymbolFuncAdd("slice", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() < 1) {
+            currentWorker->ThrowError("slice requires at least 1 argument");
+            return VariableValue();
+        }
+        if (args[0].getRawVariable()->varType != ValueType::NUM) {
+            currentWorker->ThrowError("slice indices must be numbers");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        int totalChars = getUtf8CharCount(str);
+        int startChar = (int)args[0].content.number;
+        int endChar = totalChars;
+
+        if (args.size() > 1) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("slice indices must be numbers");
+                return VariableValue();
+            }
+            endChar = (int)args[1].content.number;
+        }
+
+        if (startChar < 0) startChar = totalChars + startChar;
+        if (endChar < 0) endChar = totalChars + endChar;
+        if (startChar < 0) startChar = 0;
+        if (endChar < 0) endChar = 0;
+        if (startChar > totalChars) startChar = totalChars;
+        if (endChar > totalChars) endChar = totalChars;
+
+        if (startChar >= endChar) {
+            return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(""));
+        }
+
+        size_t startByte = getUtf8CharPos(str, startChar);
+        size_t endByte = getUtf8CharPos(str, endChar);
+
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(
+            str.substr(startByte, endByte - startByte)
+        ));
+        }, DYNAMIC_ARGUMENT);
+
+    StringSymbolFuncAdd("repeat", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        int count = (int)args[0].content.number;
+        if (count < 0) {
+            currentWorker->ThrowError("repeat count must be non-negative");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        std::string result;
+
+        for (int i = 0; i < count; i++) {
+            result += str;
+        }
+
+        return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(result));
+        }, 1);
+
+    StringSymbolFuncAdd("includes", [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args.size() < 1) {
+            currentWorker->ThrowError("includes requires at least 1 argument");
+            return VariableValue();
+        }
+        if (args[0].getContentType() != ValueType::STRING) {
+            currentWorker->ThrowError("includes requires a string argument");
+            return VariableValue();
+        }
+
+        std::string& str = thisValue->implement.stringImpl;
+        std::string& search = args[0].getRawVariable()->content.ref->implement.stringImpl;
+        size_t pos = 0;
+
+        if (args.size() > 1) {
+            if (args[1].getRawVariable()->varType != ValueType::NUM) {
+                currentWorker->ThrowError("includes second argument must be a number");
+                return VariableValue();
+            }
+            pos = (size_t)args[1].content.number;
+        }
+
+        bool result = (str.find(search, pos) != std::string::npos);
+        return CreateBooleanVariable(result);
         }, DYNAMIC_ARGUMENT);
 }
 
@@ -402,15 +941,49 @@ void StringManager_Destroy()
 	string_symbol_map.clear();
 }
 
-VariableValue GetStringValSymbol(std::wstring& symbol, VMObject* owner)
+VariableValue GetStringValSymbol(std::string& symbol, VMObject* owner)
 {
-	//对动态字段的特殊处理
-	if (symbol == L"length") {
-		VariableValue ret;
-		ret.varType = ValueType::NUM;
-		ret.content.number = owner->implement.stringImpl.length();
-		return ret;
-	}
+    // 对动态字段的特殊处理
+    if (symbol == "length") {
+        VariableValue ret;
+        ret.varType = ValueType::NUM;
+
+        std::string& str = owner->implement.stringImpl;
+
+        // 模拟JavaScript的UTF-16字符计数
+        int jsLength = 0;
+        for (size_t i = 0; i < str.length(); ) {
+            unsigned char c = str[i];
+
+            if (c < 0x80) {
+                // 单字节ASCII
+                jsLength++;
+                i++;
+            }
+            else if (c < 0xC0) {
+                // 继续字节
+                i++;
+            }
+            else if (c < 0xE0) {
+                // 2字节UTF-8
+                jsLength++;
+                i += 2;
+            }
+            else if (c < 0xF0) {
+                // 3字节UTF-8
+                jsLength++;
+                i += 3;
+            }
+            else {
+                //4字节UTF-8代理对
+                jsLength += 2;
+                i += 4;
+            }
+        }
+
+        ret.content.number = jsLength;
+        return ret;
+    }
 
 	platform.MutexLock(StringValSymbolMapLock);
 

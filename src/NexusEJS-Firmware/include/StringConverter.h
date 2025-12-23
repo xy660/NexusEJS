@@ -19,11 +19,3 @@ inline std::wstring string_to_wstring(const std::string& str) {
     std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
     return converter.from_bytes(str);
 }
-
-inline void PrintWString(std::wstring msg) {
-#ifdef _ESP32_HAL_CPU_H_
-    Serial.println(wstring_to_string(msg).c_str());
-#else
-    std::wcout << msg;
-#endif
-}
