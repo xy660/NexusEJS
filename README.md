@@ -34,6 +34,8 @@ In tests on ESP32, under a single task and without frequent object creation:
 - Trimmed firmware size: about **0.5 MB**
 - No GC pauses
 
+In scenarios where objects are created but not frequently, manually triggering GC in advance can also reduce the frequency and duration of pauses.
+
 ## Quick Start
 
 1. Download and compile the NexusEJS Toolchain.
