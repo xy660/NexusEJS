@@ -44,6 +44,8 @@ In scenarios where objects are created but not frequently, manually triggering G
 4. Run `nejsc your_app.js` to generate `your_app.nejs`.
 5. Place it in the SPIFFS data folder named `entry.nejs`, then upload the FS Image and Firmware.
 
+You can find examples in the `/demo` folder and the development documentation along with its API documentation in the `/doc` folder.
+
 ## How to Contribute
 
 We welcome contributions to the NexusEJS project! Whether it's reporting bugs, suggesting features, improving documentation, or submitting code changes, your help is greatly appreciated.
@@ -114,6 +116,8 @@ NexusEJS追求确定性和透明性，因此我们的VM设计了：
 3. 编写你的js代码
 4. 运行`nejsc your_app.js` 得到`your_app.nejs`
 5. 将其放入SPIFFS的data文件中并命名为`entry.nejs` 然后上传FS Image和Firmware
+
+**你可以在`/demo`文件夹找到示例，在`/doc`文件夹找到开发文档及其api文档**
 
 ## 如何贡献
 
