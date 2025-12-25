@@ -540,5 +540,4 @@ VariableValue GetArraySymbol(std::string& symbol,VMObject* owner) {
 	ret.thisValue = owner;
 	platform.MutexUnlock(ArraySymbolMapLock);
 	return ret;
-
 }

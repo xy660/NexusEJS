@@ -153,7 +153,7 @@ void GC::GC_FreeObject(VMObject* vm_object) {
 
 
 //深度优先遍历对象引用图标记存活对象
-void DFS_MarkObject(std::stack<VMObject*>& dfsStack,std::unordered_set<VMObject*>& allObjects) {
+void DFS_MarkObject(std::stack<VMObject*>& dfsStack,std::unordered_set<VMObject*>& allObjects,VM* VMInstance) {
 	while (!dfsStack.empty()) {
 		auto obj = dfsStack.top();
 		dfsStack.pop();
@@ -190,6 +190,10 @@ void DFS_MarkObject(std::stack<VMObject*>& dfsStack,std::unordered_set<VMObject*
 			//直接遍历这两个内置对象的Value段压栈
 			if(funcImpl.closure) dfsStack.push(funcImpl.closure);
 			if(funcImpl.propObject) dfsStack.push(funcImpl.propObject);
+
+			//标记存活的包(这里确定携带闭包的对象一定是字节码函数)
+			uint16_t pckId = funcImpl.sfn->funcImpl.local_func.packageId;
+			VMInstance->loadedPackages[pckId].GCMarked = true;
 		}
 	}
 }
@@ -243,10 +247,19 @@ void GC::Internal_GC_Collect() {
 	for (auto worker : bindingVM->workers) {
 		for (auto& fnFrame : worker->getCallingLink()) {
 
+			//将调用链的所有字节码函数所属的包标记，运行中的字节码函数不应回收
+			bindingVM->loadedPackages[fnFrame.functionInfo->packageId].GCMarked = true;
+
 			for (auto& variable_ref : fnFrame.virtualStack) {
 				if (variable_ref.varType == ValueType::REF) { //排除三个基本值类型其他都是引用
 					//将局部变量引用的对象视作垃圾回收对象图根
 					dfsStack.push(variable_ref.content.ref);
+				}
+				else if (variable_ref.varType == ValueType::FUNCTION &&
+						variable_ref.content.function->type == ScriptFunction::Local) {
+					//标记包内字节码函数对象
+					uint16_t id = variable_ref.content.function->funcImpl.local_func.packageId;
+					bindingVM->loadedPackages[id].GCMarked = true;
 				}
 			}
 			//扫描局部变量
@@ -254,29 +267,30 @@ void GC::Internal_GC_Collect() {
 				if (local_var.varType == ValueType::REF) {
 					dfsStack.push(local_var.content.ref);
 				}
+				else if (local_var.varType == ValueType::FUNCTION &&
+					local_var.content.function->type == ScriptFunction::Local) {
+					//标记包内字节码函数对象
+					uint16_t id = local_var.content.function->funcImpl.local_func.packageId;
+					bindingVM->loadedPackages[id].GCMarked = true;
+				}
 			}
 			//扫描局部环境符号表
 			for (auto& env_pair : fnFrame.functionEnvSymbols) {
 				if (env_pair.second.varType == ValueType::REF) {
 					dfsStack.push(env_pair.second.content.ref);
 				}
-			}
-
-			/*
-			for (auto& scope : fnFrame.scopeStack) {
-				for (auto& varb : scope.scopeVariables) {
-					VariableValue* current = varb.second.getRawVariable();
-					if (current->varType == ValueType::REF) {
-						dfsStack.push(current->content.ref);
-					}
+				else if (env_pair.second.varType == ValueType::FUNCTION &&
+					env_pair.second.content.function->type == ScriptFunction::Local) {
+					//标记包内字节码函数对象
+					uint16_t id = env_pair.second.content.function->funcImpl.local_func.packageId;
+					bindingVM->loadedPackages[id].GCMarked = true;
 				}
 			}
-			*/
 		}
 	}
 
 	//扫描可达对象
-	DFS_MarkObject(dfsStack, allObjects);
+	DFS_MarkObject(dfsStack, allObjects,bindingVM);
 
 	std::vector<VMObject*> finalizeQueue;
 	//开始标记所有不可达但携带finalize方法的对象引用图，此时认为他还是有效对象
@@ -289,25 +303,11 @@ void GC::Internal_GC_Collect() {
 					//送入终结器调用队列，暂时不回收它的内存
 					finalizeQueue.push_back(vmo);
 					dfsStack.push(vmo); //标记他所有引用的对象，保证存活避免垂悬指针
-					DFS_MarkObject(dfsStack, allObjects);
+					DFS_MarkObject(dfsStack, allObjects,bindingVM);
 				}
 			}
 		}
 	}
-
-#ifdef _DEBUG
-	/*
-	for (auto& obj : allObjects) {
-		printf("marked:%s value:%ws\n", obj->marked ? "true" : "false", obj->ToString().c_str());
-	}
-
-	printf("\n");
-	
-
-	uint32_t count = allObjects.size();
-	*/
-
-#endif
 
 	//标记完有用的对象接下来删掉所有没用的
 
@@ -324,6 +324,26 @@ void GC::Internal_GC_Collect() {
 			(*it)->marked = false; //存活的对象清理掉标记，下次回收无需重复清除标记
 		}
 		it++;
+	}
+
+	//清理已经无法访问的包，并将其卸载
+	//先扫描所有的常量字符串，然后确认是否需要，并将标记重置
+	for (auto& package : bindingVM->loadedPackages) {
+		for (auto& con_str : package.second.ConstStringPool) {
+			if (con_str->marked) {
+				package.second.GCMarked = true;
+				con_str->marked = false; //移除标记让下一次扫描
+			}
+		}
+	}
+	for (auto it = bindingVM->loadedPackages.begin(); it != bindingVM->loadedPackages.end();) {
+		if ((*it).second.GCMarked) {
+			(*it).second.GCMarked = false;
+			it++;
+		}
+		else {
+			it = bindingVM->UnloadPackageWithIterator(it);
+		}
 	}
 
 	//清理完毕，恢复世界
@@ -395,12 +415,6 @@ void GC::Internal_GC_Collect() {
 		}
 	}
 
-
-#ifdef _DEBUG
-	//printf("gc time span:%d\n", platform.TickCount32() - startTime);
-#endif 
-
-	//printf("gc time span:%d  cleaned object:%d\n", platform.TickCount32() - startTime,startObjectCount - allObjects.size());
 }
 
 VariableValue GC::InvokeBytecodeFinalizeFunc(ByteCodeFunction& func,VMObject*thisValue) {

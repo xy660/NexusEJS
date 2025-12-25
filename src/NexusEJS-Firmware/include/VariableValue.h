@@ -101,9 +101,7 @@ class VMObject {
 public:
     
     bool marked; //GC要用
-
-    bool flag_isLocalObject : 1;
-
+    //bool flag_isLocalObject : 1;
     ValueType::IValueType type = ValueType::NULLREF; //存储类型
 
     void* mutex; //对象锁，按需分配，默认null
@@ -171,7 +169,7 @@ public:
     */
 
     VMObject(ValueType::IValueType type) {
-        this->flag_isLocalObject = false;
+        //this->flag_isLocalObject = false;
         this->type = type;
         this->marked = false;
         this->mutex = NULL;
@@ -285,6 +283,7 @@ public:
 class PackageContext {
 public:
     uint16_t packageId;
+    uint8_t GCMarked = false;
     std::vector<VMObject*> ConstStringPool;
     std::unordered_map<std::string, VariableValue> bytecodeFunctions;
     std::string packageName;

@@ -524,6 +524,8 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 
 	vmo->implement.objectImpl["bufid"] = CreateNumberVariable((double)id);
 
+	vmo->implement.objectImpl["size"] = CreateNumberVariable((double)size);
+
 	for (auto& pair : vmo->implement.objectImpl) {
 		pair.second.readOnly = true;
 	}

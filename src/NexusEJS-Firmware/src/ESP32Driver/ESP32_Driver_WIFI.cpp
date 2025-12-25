@@ -84,9 +84,12 @@ void HTTPClientRespObjectTempInit() {
       0,
       [](std::vector<VariableValue>& args, VMObject* thisVal,
          VMWorker* w) -> VariableValue {
-        auto it = thisVal->implement.objectImpl.find("_body");
+        auto it = thisVal->implement.objectImpl.find("_buf");
         if (it != thisVal->implement.objectImpl.end()) {
-          return it->second;
+          uint32_t bufid = (uint32_t)(*it).second.content.ref->implement.objectImpl["bufid"].content.number;
+          auto bufinfo = GetByteBufferInfo(bufid);
+          std::string str((const char*)bufinfo.data,bufinfo.length);
+          return CreateReferenceVariable(w->VMInstance->currentGC->GC_NewStringObject(str));
         }
         return VariableValue();
       });
@@ -96,11 +99,9 @@ void HTTPClientRespObjectTempInit() {
       0,
       [](std::vector<VariableValue>& args, VMObject* thisVal,
          VMWorker* w) -> VariableValue {
-        w->ThrowError(".buffer() not implement on this version");
-        return VariableValue();
-        auto it = thisVal->implement.objectImpl.find("_body");
+        auto it = thisVal->implement.objectImpl.find("_buf");
         if (it != thisVal->implement.objectImpl.end()) {
-          return it->second;
+          return it->second; //返回buffer对象本身
         }
         return VariableValue();
       });
@@ -372,9 +373,15 @@ void ESP32_HTTPApi_Init(VM* VMInstance) {
         else
           httpCode = http.GET();
 
-        String responseBody = "";
+        VMObject* bufferObject;
         if (httpCode > 0) {
-          responseBody = http.getString();
+          bufferObject = CreateByteBufferObject(http.getSize(),currentWorker);
+          uint32_t bufid = (uint32_t)bufferObject->implement.objectImpl["bufid"].content.number;
+          auto info = GetByteBufferInfo(bufid);
+          uint32_t offset = 0;
+          while(offset < info.length && http.getStream().available()){
+            offset += http.getStream().readBytes(info.data + offset,info.length - offset);
+          }
         }
         http.end();
 
@@ -402,11 +409,8 @@ void ESP32_HTTPApi_Init(VM* VMInstance) {
         response->implement.objectImpl["url"] = args[0];
 
         // 内部body存储
-        VMObject* bodyObj =
-            currentWorker->VMInstance->currentGC->GC_NewStringObject(
-                responseBody.c_str());
-        response->implement.objectImpl["_body"] =
-            CreateReferenceVariable(bodyObj);
+        response->implement.objectImpl["_buf"] =
+            CreateReferenceVariable(bufferObject);
 
         return CreateReferenceVariable(response);
       });

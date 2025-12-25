@@ -45,6 +45,12 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 
 	//构造新的程序包上下文
 	uint32_t packageId = packageIdSeed++;
+
+	if (packageId == 0xFFFF) {
+		printf("warning!! MAX packageId!the VM abort now");
+		abort();
+	}
+
 	std::vector<VMObject*>& ConstStringPool = this->loadedPackages[packageId].ConstStringPool;//字符串对象常量池
 
 	uint32_t stringPoolSize;
@@ -58,7 +64,7 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 		pos += sizeof(uint32_t);
 		VMObject* vmo = (VMObject*)platform.MemoryAlloc(sizeof(VMObject));
 		new (vmo) VMObject(ValueType::STRING);
-		vmo->flag_isLocalObject = true; //常量标志，表示对象不受GC管理
+		//vmo->flag_isLocalObject = true; //常量标志，表示对象不受GC管理
 		vmo->implement.stringImpl.resize(length);
 		memcpy(&vmo->implement.stringImpl[0], data + pos, length * CHAR_SIZE);
 		//vmo->implement.stringImpl = std::string((char*)(data + pos), length);
@@ -135,21 +141,33 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 }
 
 void VM::UnloadAllPackage() {
-	//释放存储的固定脚本方法对象
-	for (auto pScriptFunc : ScriptFunctionObjects) {
-		platform.MemoryFree(pScriptFunc);
-	}
 	//释放所有加载的程序包内存
 	for (auto& package : loadedPackages) {
 		for (auto pConstObject : package.second.ConstStringPool) {
+			pConstObject->~VMObject();
 			platform.MemoryFree(pConstObject);
 		}
-		for (auto pScriptFunction : package.second.bytecodeFunctions) {
+		for (auto& pScriptFunction : package.second.bytecodeFunctions) {
 			pScriptFunction.second.content.function->~ScriptFunction();
 			platform.MemoryFree(pScriptFunction.second.content.function);
 		}
 	}
 }
+
+void VM::UnloadPackage(uint16_t id) {
+	auto& package = loadedPackages[id];
+	for (auto pConstObject : package.ConstStringPool) {
+		pConstObject->~VMObject();
+		platform.MemoryFree(pConstObject);
+	}
+	for (auto& pair : package.bytecodeFunctions) {
+		pair.second.content.function->~ScriptFunction();
+		platform.MemoryFree(pair.second.content.function);
+	}
+	loadedPackages.erase(id);
+}
+
+
 
 VariableValue* VM::GetBytecodeFunctionSymbol(uint16_t id, std::string& name) {
 	platform.MutexLock(globalSymbolLock);

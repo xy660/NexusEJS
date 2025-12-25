@@ -2,7 +2,7 @@
 
 #define VM_VERSION_NUMBER 4
 
-#define VM_VERSION_STR "V1.3.0"
+#define VM_VERSION_STR "V1.3.1"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
@@ -10,6 +10,7 @@
 
 #include <memory>
 #include <vector>
+#include <unordered_map>
 #include "ByteCode.h"
 #include "VariableValue.h"
 
@@ -126,8 +127,6 @@ public:
 	//VMWorker中包含了正在执行的函数，需要确保this指针不会以外失效
 	std::vector<VMWorker*> workers; 
 
-	std::vector<ScriptFunction*> ScriptFunctionObjects; //存储分配出来的ScriptFunction对象(目前只存Local类型的)
-
 	static std::vector<ScriptFunction*> SystemFunctionObjects;
 
 	GC* currentGC;
@@ -156,6 +155,22 @@ public:
 
 	uint16_t LoadPackedProgram(uint8_t* data, uint32_t length);
 	void UnloadAllPackage();
+	void UnloadPackage(uint16_t id);
+	//GC用的，使用迭代器卸载包，内联
+	inline std::unordered_map<uint16_t, PackageContext>::iterator UnloadPackageWithIterator(std::unordered_map<uint16_t, PackageContext>::iterator it)
+	{
+		auto& package = (*it);
+		printf("GC.UnloadPackage:[%d]%s\n", (*it).second.packageId, (*it).second.packageName.c_str());
+		for (auto pConstObject : package.second.ConstStringPool) {
+			pConstObject->~VMObject();
+			platform.MemoryFree(pConstObject);
+		}
+		for (auto& pair : package.second.bytecodeFunctions) {
+			pair.second.content.function->~ScriptFunction();
+			platform.MemoryFree(pair.second.content.function);
+		}
+		return loadedPackages.erase(it);
+	}
 	VariableValue* GetBytecodeFunctionSymbol(uint16_t id, std::string& name);
 	PackageContext* GetPackageByName(std::string& name);
 

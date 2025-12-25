@@ -45,6 +45,7 @@ void ESP32_SPI_Init(VM* VMInstance);
 
 void InitPWMChannels();
 void ESP32_Platform_Init();
+void ESP32_FSAPI_Init(VM* VMInstance);
 void ESP32Driver_Init(VM* VMInstance);
 
 #endif

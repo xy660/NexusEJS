@@ -23,6 +23,7 @@ public:
         byteCode = NULL;
         byteCodeLength = 0;
         packageId = 0xFFFFFFFF;
+        funcNameStrId = 0xFFFFFFFF;
     }
 
     ByteCodeFunction(const ByteCodeFunction& fn) = delete;

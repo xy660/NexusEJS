@@ -1264,11 +1264,13 @@ VM::~VM()
 {
 	platform.MutexDestroy(globalSymbolLock);
 
+	/*
 	//清理掉加载进来的字节码方法
 	for (ScriptFunction* fn : ScriptFunctionObjects) {
 		fn->~ScriptFunction();
 		platform.MemoryFree(fn);
 	}
+	*/
 
 	globalSymbols.clear();
 	for (auto worker : workers) {
