@@ -154,6 +154,14 @@ NexusEJS不支持`"123"`和`123`混合使用，并且`==`运算符和标准JavaS
 
 同理，数组索引也是不允许使用字符串的，避免隐式转换导致的未定义行为
 
+## 类型转换
+
+NexusEJS使用严格类型，`"123" != 123`，因此需要进行类型转换。
+对于其他类型转字符串，不需要也不存在调用显式toString方法，NexusEJS在拼接字符串时会自动转字符串，例如`123 + "" == "123"`
+对于字符串转数字，需要调用`Number.parseFloat(str : string)`，例如`Number.parseFloat("123") == 123`
+
+数组不支持使用字符串表示的数字索引，不允许`❌arr["123"]`，这会直接抛出异常
+
 ## 内存管理
 
 NexusEJS的内存管理使用自动垃圾清理（GC），当剩余内存百分比达到阈值自动触发，可以通过GC.h中的宏`LESS_MEMORY_TRIG_COLLECT`控制
@@ -220,6 +228,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
