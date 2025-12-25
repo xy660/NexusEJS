@@ -220,7 +220,7 @@ I2C实例对象，用于操作I2C总线
 
 #### 方法
 - `response.text() : string` - 返回响应文本
-- `response.buffer()` - 当前版本未实现，调用会抛出错误
+- `response.buffer()` - 返回存储响应的原始数据的Buffer对象
 - **参数**:
   - `timeout`: 超时时间（毫秒）
 - **返回**: 设置是否成功
@@ -261,3 +261,114 @@ I2C实例对象，用于操作I2C总线
 - **异常**: 参数类型错误时抛出错误
 
 
+# System 系统类
+
+提供 ESP32 系统的控制和管理功能，包括重启、睡眠、系统信息查询、延时操作、看门狗等。
+
+## 常量定义
+
+### 启动原因常量
+- `BOOT_REASON_UNKNOWN` - 未知原因
+- `BOOT_REASON_POWERON` - 电源上电重启
+- `BOOT_REASON_RESET` - 软件重启
+- `BOOT_REASON_EXCEPTION` - 异常重启
+- `BOOT_REASON_WDT` - 看门狗超时重启
+- `BOOT_REASON_DEEPSLEEP` - 深度睡眠唤醒重启
+- `BOOT_REASON_BROWNOUT` - 欠压重启
+- `BOOT_REASON_SDIO` - SDIO 重启
+
+### 唤醒原因常量
+- `WAKEUP_REASON_UNDEFINED` - 未定义的唤醒原因
+- `WAKEUP_REASON_EXT0` - 外部中断 0 唤醒
+- `WAKEUP_REASON_EXT1` - 外部中断 1 唤醒
+- `WAKEUP_REASON_TIMER` - 定时器唤醒
+- `WAKEUP_REASON_TOUCHPAD` - 触摸唤醒
+- `WAKEUP_REASON_ULP` - ULP 协处理器唤醒
+- `WAKEUP_REASON_GPIO` - GPIO 唤醒
+- `WAKEUP_REASON_UART` - UART 唤醒
+
+## 系统控制方法
+
+### `System.reboot()`
+立即重启系统，无延时
+
+### `System.restart()`
+立即重启系统，无延时（同 `reboot`）
+
+### `System.deepSleep(time : number)`
+进入深度睡眠模式
+- **参数**:
+  - `time`: 睡眠时间（微秒）。如果为 0 或未指定，将无限期睡眠
+- **注意**: 深度睡眠时大部分外设断电，仅 RTC 和外设可唤醒
+
+### `System.lightSleep(time : number)`
+进入轻度睡眠模式
+- **参数**:
+  - `time`: 睡眠时间（微秒）。如果为 0 或未指定，将无限期睡眠
+- **注意**: 轻度睡眠保持外设和内存供电，唤醒更快
+
+## 系统信息查询
+
+### `System.getBootReason() : number`
+获取系统启动原因
+- **返回值**: 启动原因值，对应 `BOOT_REASON_*` 常量
+
+### `System.getWakeupReason() : number`
+获取系统唤醒原因
+- **返回值**: 唤醒原因值，对应 `WAKEUP_REASON_*` 常量
+
+### `System.getChipInfo() : object`
+获取芯片信息
+- **返回值**: 对象包含以下属性:
+  - `model`: 芯片型号
+  - `cores`: CPU 核心数量
+  - `revision`: 芯片版本
+  - `id`: 芯片唯一 ID
+
+### `System.getMemoryInfo() : object`
+获取内存信息
+- **返回值**: 对象包含以下属性:
+  - `heapSize`: 堆内存总大小（字节）
+  - `freeHeap`: 当前可用堆内存（字节）
+  - `minFreeHeap`: 历史最小可用堆内存（字节）
+  - `maxAllocHeap`: 最大可分配堆内存（字节）
+  - `psramSize`: PSRAM 总大小（字节，仅 ESP32 支持）
+  - `freePsram`: 当前可用 PSRAM（字节，仅 ESP32 支持）
+  - `minFreePsram`: 历史最小可用 PSRAM（字节，仅 ESP32 支持）
+  - `maxAllocPsram`: 最大可分配 PSRAM（字节，仅 ESP32 支持）
+
+### `System.getUptime() : number`
+获取系统运行时间（毫秒）
+- **返回值**: 从启动开始到现在的毫秒数
+
+### `System.getUptimeMicros() : number`
+获取系统运行时间（微秒）
+- **返回值**: 从启动开始到现在的微秒数
+
+## 延时控制
+
+### `System.delay(time : number)`
+毫秒级延时
+- **参数**:
+  - `time`: 延时时间（毫秒）
+
+### `System.delayMicroseconds(time : number)`
+微秒级延时
+- **参数**:
+  - `time`: 延时时间（微秒）
+
+## 看门狗控制
+
+### `System.watchdogEnable(enable : boolean) : boolean`
+启用或禁用看门狗
+- **参数**:
+  - `enable`: true 启用看门狗，false 禁用看门狗
+- **返回值**: 当前看门狗状态
+
+### `System.feedWatchdog()`
+喂狗操作，重置看门狗定时器
+
+## 内存管理
+
+### `System.gc()`
+手动触发垃圾回收
