@@ -17,6 +17,8 @@ println("test export:" + pck.getInnerMessage());
 println("global=" + global);
 println("test global export function: ");
 testFunc();
+pck = null;
+gc(); //解除模块引用，此时触发GC模块将被自动卸载
 return "success";
 ```
 
@@ -37,7 +39,7 @@ return {
 ```
 示例中，如果需要作为require的模块对象返回值，则直接使用return返回，如果需要注册符号到全局，则直接增加global对象关键字（需要注意符号冲突）
 
-### ⚠请注意，目前加载的包不支持卸载，请根据内存情况酌情使用，避免加载一大堆的包
+### V1.3.1版本后模块将在不存在任何引用后由GC自动卸载，释放内存
 
 
 
