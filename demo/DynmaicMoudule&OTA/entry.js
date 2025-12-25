@@ -1,9 +1,9 @@
-WiFi.connect("傻逼wifi","1145141919810");
+WiFi.connect("your_wifi","your_password");
 while(!WiFi.isConnected()){
     System.delay(100);
     println("connecting...");
 }
-let resp = Http.fetch("http://192.168.137.1/test.nejs");
+let resp = Http.fetch("http://192.168.137.1/test.nejs"); //replace to your module true url
 println("resp:" + resp);
 let buf = resp.buffer();
 let file = FS.open("/test.nejs",FS.FILE_WRITE);
@@ -15,5 +15,6 @@ println(res);
 System.gc();
 res = null; //to unload the test.nejs in next gc
 System.gc();
+
 
 
