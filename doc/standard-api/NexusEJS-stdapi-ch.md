@@ -140,6 +140,12 @@ try{
 
 让出CPU使当前worker休眠指定毫秒数
 
+## 动态模块
+
+- *require(path : string) : any*
+加载模块，同步执行模块的入口点并返回模块的return值
+模块将会保持期声明周期直到代码中不持有模块的任何引用，模块将会被GC自动卸载
+
 ## 类型说明
 
 - 所有Buffer读写方法的偏移量和大小参数必须满足：`0 ≤ offset < length` 且 `offset + size ≤ length`
