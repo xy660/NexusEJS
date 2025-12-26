@@ -383,6 +383,11 @@ void ESP32_HTTPApi_Init(VM* VMInstance) {
             offset += http.getStream().readBytes(info.data + offset,info.length - offset);
           }
         }
+        else{
+          http.end();
+          currentWorker->ThrowError("the request is failed");
+          return VariableValue(); //fix: 这里修复一个严重错误，请求失败会导致Buffer空指针，现在改为抛出异常
+        }
         http.end();
 
         // 创建响应对象
