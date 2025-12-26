@@ -36,7 +36,7 @@ class ValueType {
 public:
     enum IValueType : uint8_t
     {
-        NULLREF, //空引用
+        UNDEFINED, //未定义
         CONTEXT,
         ANY,
         NUM,
@@ -49,7 +49,7 @@ public:
         PROMISE,
         BRIDGE, //VariableValue指针代理
         REF, //VariableValue引用类型
-        UNDEFINED,
+        NULLREF, //空引用 
     };
 };
 
@@ -88,6 +88,8 @@ public:
     ValueType::IValueType getContentType();
 
     std::string ToString(uint16_t depth = 0) const;
+
+    bool Truty();
 
     VariableValue() {
         content = { 0 };
@@ -312,6 +314,9 @@ inline bool operator ==(const VariableValue& left, const VariableValue& right) {
             return *a->content.ref == *b->content.ref;
         }
         return false;
+    }
+    else if (a->varType == ValueType::UNDEFINED || a->varType == ValueType::NULLREF) {
+        return b->varType == ValueType::UNDEFINED || b->varType == ValueType::NULLREF;
     }
     return false;
 }

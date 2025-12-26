@@ -71,8 +71,8 @@
 
 #define BINARY_OP_LEFT_NUM left->content.number
 #define BINARY_OP_RIGHT_NUM right->content.number
-#define BINARY_OP_LEFT_BOOL left->content.boolean
-#define BINARY_OP_RIGHT_BOOL right->content.boolean
+#define BINARY_OP_LEFT_BOOL left->Truty()
+#define BINARY_OP_RIGHT_BOOL right->Truty()
 
 
 #pragma endregion
@@ -635,7 +635,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
 			VariableValue res;
 			res.varType = ValueType::BOOL;
-			res.content.boolean = !target->content.boolean;
+			res.content.boolean = !target->Truty();
 			currentFn->virtualStack.pop_back();
 			currentFn->virtualStack.push_back(res);
 			break;
@@ -838,7 +838,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			uint32_t addr;
 			//= *(uint32_t*)(currentFn->byteCode + rawep + 1);
 			memcpy(&addr, currentFn->byteCode + rawep + 1, sizeof(uint32_t));
-			if (!codition->content.boolean) {
+			if (!codition->Truty()) {
 				currentScope->ep += addr;
 
 			}
@@ -1254,7 +1254,10 @@ VM::VM(GC* gc) {
 	std::string globalObjectName = "global";
 	storeGlobalSymbol(globalObjectName, globalObjectRef);
 
-
+	std::string undef_name = "undefined";
+	VariableValue undefined;
+	undefined.readOnly = true; //阻止用户重新赋值
+	storeGlobalSymbol(undef_name, undefined);
 
 }
 

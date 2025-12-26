@@ -78,6 +78,9 @@ std::string VariableValue::ToString(uint16_t depth) const
     else if (raw->varType == ValueType::NULLREF) {
         return "null";
     }
+    else if (raw->varType == ValueType::UNDEFINED) {
+        return "undefined";
+    }
     return "no-support-var-str";
 }
 
@@ -175,6 +178,29 @@ std::string VMObject::ToString(uint16_t depth) {
         return "error-object";
     }
     return "unknown-object";
+}
+
+bool VariableValue::Truty() {
+    ValueType::IValueType contentType = this->getContentType();
+    switch (contentType)
+    {
+    case ValueType::UNDEFINED:
+        return false;
+    case ValueType::NULLREF:
+        return false;
+    case ValueType::NUM:
+        return this->content.number != 0;
+    case ValueType::STRING:
+        return this->content.ref->implement.stringImpl.length() > 0;
+    case ValueType::BOOL:
+        return this->content.boolean;
+    case ValueType::ARRAY:
+        return this->content.ref->implement.arrayImpl.size() > 0;
+    case ValueType::OBJECT:
+        return this->content.ref->implement.objectImpl.size() > 0;
+    default:
+        return true;
+    }
 }
 
 //this一定要是引用类型所以不需要BRIDGE类型

@@ -23,8 +23,10 @@
 
 */
 
+
 #define MAX_PWM_CHANNELS 16
 #define ANALOG_READ_RESOLUTION 1024
+#define DEFAULT_BAUDRATE 9600
 
 
 extern uint8_t pwmChannelObjectsBuffer[sizeof(VMObject) * MAX_PWM_CHANNELS];
@@ -47,5 +49,6 @@ void InitPWMChannels();
 void ESP32_Platform_Init();
 void ESP32_FSAPI_Init(VM* VMInstance);
 void ESP32Driver_Init(VM* VMInstance);
+
 
 #endif

@@ -24,7 +24,7 @@ bool _StartWith(const char* src, const char* header) {
 }
 
 void ESP32_Platform_Init() {
-  Serial.begin(9600);
+  Serial.begin(DEFAULT_BAUDRATE);
   Serial.println("VM inited");
 
   // 实现ESP32 Arduino FreeRTOS平台的抽象层
@@ -531,8 +531,8 @@ void ESP32_PlatformStdlibImpl_Init(VM* VMInstance) {
 }
 
 void ESP32Driver_Init(VM* VMInstance) {
-  VMInstance->currentGC->GCDisabled =
-      true;  // 暂时禁用GC避免创建对象中途发生GC导致垂悬指针
+  // 暂时禁用GC避免创建对象中途发生GC导致垂悬指针
+  VMInstance->currentGC->GCDisabled = true;
   ESP32_PlatformStdlibImpl_Init(VMInstance);
   VMInstance->currentGC->GCDisabled = false;
 }
