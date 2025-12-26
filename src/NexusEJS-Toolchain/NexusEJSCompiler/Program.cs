@@ -9,6 +9,66 @@ namespace CompileLab
     internal class Program
     {
         static bool DetailOutput = false;
+        
+        static void CompileSingleFile(string path)
+        {
+            var code = File.ReadAllText(path.Replace("\"", ""));
+            //code = StringUtils.ClearMultiSpace(code);
+            code = StringUtils.RemoveComments(code);
+            var tokens = Lexer.SplitTokens(code);
+            ASTNode ast = Parser.BuildASTByTokens(tokens);
+
+            Console.WriteLine(SyntaxUtils.GetASTString(ast));
+
+
+            var comp = new Compiler();
+            var result = comp.FullCompile(ast);
+
+            if (DetailOutput)
+            {
+                foreach (var cc in result)
+                {
+                    Console.WriteLine("FuncName: " + cc.Key);
+                    Console.WriteLine("Args: " + string.Join(",", cc.Value.arguments));
+                    Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.bytecode) + "]");
+                    Console.WriteLine("asm: \r\n" + cc.Value.asm);
+                    foreach (var map in cc.Value.mapper)
+                    {
+                        Console.WriteLine($"offset:{map.offset} <-> line:{map.line}");
+                    }
+                }
+            }
+
+
+            
+            //string outputName = path.Substring(0, path.Length - path.Split(".").Last().Length - 1) + ".nejs";
+            string packageName = Path.GetFileNameWithoutExtension(path);
+            string outputName = Path.Combine(Path.GetDirectoryName(path), "nejs_out",packageName + ".nejs");
+            string mapOutputName = outputName + ".map";
+
+            byte[] packed = Compiler.PackFunction(packageName, comp.ConstString, result);
+
+            if (DetailOutput)
+                Console.WriteLine("packed: [" + string.Join(",", packed) + "]");
+
+            File.WriteAllBytes(outputName, packed);
+            StringBuilder mapbuf = new StringBuilder();
+            mapbuf.Append($"{outputName.Replace("\\", "/").Split('/').Last()} {result.Count}\n");
+            foreach (var cc in result)
+            {
+                mapbuf.Append($"{cc.Key} {cc.Value.mapper.Count}\n");
+                foreach (var map in cc.Value.mapper)
+                {
+                    mapbuf.Append($"{map.offset}|{map.line}\n");
+                }
+            }
+            Console.WriteLine();
+            Console.WriteLine("\nFinished!");
+            File.WriteAllText(mapOutputName, mapbuf.ToString());
+            Console.WriteLine($"output:{outputName}");
+            Console.WriteLine($"map:{mapOutputName}");
+        }
+
         static void Main(string[] args)
         {
             if (args.Length > 0)
@@ -20,60 +80,32 @@ namespace CompileLab
                         DetailOutput = true;
                     }
                 }
-                var code = File.ReadAllText(args[0].Replace("\"", ""));
-                //code = StringUtils.ClearMultiSpace(code);
-                code = StringUtils.RemoveComments(code);
-                var tokens = Lexer.SplitTokens(code);
-                ASTNode ast = Parser.BuildASTByTokens(tokens);
-
-                Console.WriteLine(SyntaxUtils.GetASTString(ast));
-
-
-                var comp = new Compiler();
-                var result = comp.FullCompile(ast);
-
-                if (DetailOutput)
+                var path = args[0].Replace("\"", string.Empty);
+                if (Directory.Exists(path))
                 {
-                    foreach (var cc in result)
+                    if (!Directory.Exists(Path.Combine(path, "nejs_out")))
                     {
-                        Console.WriteLine("FuncName: " + cc.Key);
-                        Console.WriteLine("Args: " + string.Join(",", cc.Value.arguments));
-                        Console.WriteLine("bytecode: [" + string.Join(",", cc.Value.bytecode) + "]");
-                        Console.WriteLine("asm: \r\n" + cc.Value.asm);
-                        foreach (var map in cc.Value.mapper)
+                        Directory.CreateDirectory(Path.Combine(path, "nejs_out"));
+                    }
+                    foreach (var single in Directory.GetFiles(path))
+                    {
+                        if (Path.GetExtension(single) == ".js")
                         {
-                            Console.WriteLine($"offset:{map.offset} <-> line:{map.line}");
+                            try
+                            {
+                                CompileSingleFile(single);
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.WriteLine(ex.ToString());
+                            }
                         }
                     }
                 }
-                
-
-
-                string outputName = args[0].Substring(0,args[0].Length - args[0].Split(".").Last().Length - 1) + ".nejs";
-                string packageName = Path.GetFileNameWithoutExtension(outputName);
-                string mapOutputName = outputName + ".map";
-
-                byte[] packed = Compiler.PackFunction(packageName,comp.ConstString, result);
-
-                if(DetailOutput) 
-                    Console.WriteLine("packed: [" + string.Join(",", packed) + "]");
-
-                File.WriteAllBytes(outputName, packed);
-                StringBuilder mapbuf = new StringBuilder();
-                mapbuf.Append($"{outputName.Replace("\\", "/").Split('/').Last()} {result.Count}\n");
-                foreach(var cc in result)
+                else if(File.Exists(path))
                 {
-                    mapbuf.Append($"{cc.Key} {cc.Value.mapper.Count}\n");
-                    foreach (var map in cc.Value.mapper)
-                    {
-                        mapbuf.Append($"{map.offset}|{map.line}\n");
-                    }
+                    CompileSingleFile(path);
                 }
-                Console.WriteLine();
-                Console.WriteLine("\nFinished!");
-                File.WriteAllText(mapOutputName, mapbuf.ToString());
-                Console.WriteLine($"output:{outputName}");
-                Console.WriteLine($"map:{mapOutputName}");
                 return;
             }
 

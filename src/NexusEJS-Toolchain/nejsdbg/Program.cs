@@ -6,6 +6,8 @@ namespace nejsdbg
     {
         static SerialPort port;
 
+        static string entryFileDirPath = string.Empty;
+
         static AutoResetEvent waitForDone = new AutoResetEvent(false);
 
         enum Mode
@@ -35,6 +37,11 @@ namespace nejsdbg
                                     if (sb.ToString().StartsWith("debugger"))
                                     {
                                         return sb.ToString().Substring(9);
+                                    }
+                                    else if (sb.ToString().StartsWith("print=>"))
+                                    {
+                                        Console.WriteLine("Device print: " + sb.ToString().Substring(7));
+                                        return string.Empty;
                                     }
                                     else
                                     {
@@ -366,7 +373,7 @@ namespace nejsdbg
         {
             if (args.Length == 0)
             {
-                Console.WriteLine("Usage: nejsdbg <mode> <addr> <>\r\nExample: nejsdbg serial COM3");
+                Console.WriteLine("Usage: nejsdbg <mode> <addr>\r\nExample: nejsdbg serial COM3");
                 return;
             }
             if (args[0] == "serial")
@@ -392,7 +399,10 @@ namespace nejsdbg
                 {
                     Console.WriteLine($"Open the port failed:" + ex.Message);
                 }
-
+                if (args.Length > 2)
+                {
+                    entryFileDirPath = args[2];
+                }
                 HandledMessage();
 
             }
