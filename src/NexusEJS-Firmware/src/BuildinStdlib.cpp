@@ -983,6 +983,10 @@ void BuildinStdlib_Init()
 		}
 		uint32_t fileSize = 0;
 		uint8_t* nejsBuffer = platform.ReadFile(args[0].content.ref->implement.stringImpl,&fileSize);
+
+		if (!nejsBuffer || fileSize == 0) {
+			currentWorker->ThrowError("fail to read the nejs file");
+		}
 		
 		uint16_t id = currentWorker->VMInstance->LoadPackedProgram(nejsBuffer, fileSize);
 		
