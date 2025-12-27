@@ -175,7 +175,7 @@ void ESP32_GpioClass_Init(VM* VMInstance) {
         return VariableValue();
       });
   gpioClass->implement.objectImpl["read"] = VM::CreateSystemFunc(
-      2,
+      1,
       [](std::vector<VariableValue>& args, VMObject* thisValue,
          VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::NUM) {
@@ -189,7 +189,7 @@ void ESP32_GpioClass_Init(VM* VMInstance) {
   analogReadResolution(ANALOG_READ_RESOLUTION);  // 默认10bit分辨率
   // 返回归一化的模拟量读取
   gpioClass->implement.objectImpl["readAnalog"] = VM::CreateSystemFunc(
-      2,
+      1,
       [](std::vector<VariableValue>& args, VMObject* thisValue,
          VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::NUM) {
@@ -203,7 +203,7 @@ void ESP32_GpioClass_Init(VM* VMInstance) {
       });
   // 返回原始数据的模拟量读取
   gpioClass->implement.objectImpl["readAnalogRaw"] = VM::CreateSystemFunc(
-      2,
+      1,
       [](std::vector<VariableValue>& args, VMObject* thisValue,
          VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::NUM) {

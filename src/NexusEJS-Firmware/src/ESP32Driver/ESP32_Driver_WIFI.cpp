@@ -140,6 +140,30 @@ void WebServerObjectTempInit() {
                webserverInstances.size());
         return CreateBooleanVariable(true);  // 允许GC回收对象
       });
+
+      //主动释放函数销毁绑定的原生web服务对象
+  WebServerObjectTemplate["close"] = VM::CreateSystemFunc(
+      0,
+      [](std::vector<VariableValue>& args, VMObject* thisValue,
+         VMWorker* currentWorker) -> VariableValue {
+        // 销毁相关原生资源
+        uint32_t nativeId =
+            (uint32_t)thisValue->implement.objectImpl["_id"].content.number;
+        // 检查并停止RTOS任务
+        if (webserverLoopTasks.find(nativeId) != webserverLoopTasks.end()) {
+          vTaskDelete(webserverLoopTasks[nativeId]);
+          webserverLoopTasks.erase(nativeId);
+        }
+        printf("WebServer.finalize: single map size=%d\n",
+               webserverInstances.size());
+        webserverInstances.erase(nativeId);
+        printf("WebServer.finalize: erased single map size=%d\n",
+               webserverInstances.size());
+          //销毁析构
+        thisValue->implement.objectImpl.erase("finalize");
+        return VariableValue();
+      });
+
   // 准备操作方法
   WebServerObjectTemplate["begin"] = VM::CreateSystemFunc(
       0,
@@ -502,6 +526,21 @@ void TCPSocketObjectTempInit() {
           tcpclientInstances.erase(nativeId);
         }
 
+        return CreateBooleanVariable(true);
+      });
+
+    TCPSocketObjectTemplate["close"] = VM::CreateSystemFunc(
+      0,
+      [](std::vector<VariableValue>& args, VMObject* thisValue,
+         VMWorker* currentWorker) -> VariableValue {
+        uint32_t nativeId =
+            (uint32_t)thisValue->implement.objectImpl["_id"].content.number;
+
+        if (tcpclientInstances.find(nativeId) != tcpclientInstances.end()) {
+          // 直接释放资源，不需要检查连接状态
+          tcpclientInstances.erase(nativeId);
+        }
+        thisValue->implement.objectImpl.erase("finalize");
         return CreateBooleanVariable(true);
       });
 

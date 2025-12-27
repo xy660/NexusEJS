@@ -130,7 +130,7 @@ void DumpFrame(VMWorker* worker) {
 	std::ostringstream oss;
 
 	// cmd
-	oss.str(""); 
+	oss.str("");
 	oss << "cmd:" << IOpCodeStr_DBG[currentFn.byteCode[currentScope.byteCodeStart + currentScope.ep]];
 	debuggerImpl.SendToDebugger(oss.str().c_str());
 
@@ -220,7 +220,7 @@ bool NeedBreakPoint(uint16_t nameId, uint32_t eip, uint16_t packageId) {
 		return false;
 	}
 	auto& vec = (*it).second;
-	
+
 	for (auto& key : vec) {
 		if (key.functionNameId == nameId && key.packageId == packageId) {
 			return true;
@@ -237,7 +237,7 @@ bool RemoveBreakPoint(uint16_t nameId, uint32_t eip, uint16_t packageId) {
 	}
 	auto& vec = it->second;
 
-	for (auto it = vec.begin(); it != vec.end();it++) {
+	for (auto it = vec.begin(); it != vec.end(); it++) {
 		auto& key = *it;
 		if (key.functionNameId == nameId && key.packageId == packageId) {
 			vec.erase(it);
@@ -351,7 +351,7 @@ void* DebuggerProc(void* param) {
 			}
 			else if (split[0] == "workers") { //查看workers
 				for (auto& worker : vm->workers) {
-					debuggerImpl.SendToDebugger(("worker:" + std::to_string(worker.get()->currentWorkerId)).c_str());
+					debuggerImpl.SendToDebugger(("worker:" + std::to_string(worker->currentWorkerId)).c_str());
 				}
 			}
 			else if (split[0] == "stw") { //暂停整个VM并显示给定worker stw <worker_id?可选>
@@ -366,11 +366,11 @@ void* DebuggerProc(void* param) {
 
 					currentBreakState = BREAKED;
 
-					cur_breakPoint.worker = vm->workers[0].get(); //默认第一个worker
+					cur_breakPoint.worker = vm->workers[0]; //默认第一个worker
 
 					debuggerImpl.SendToDebugger("brk_trig"); //手动发送断点响应信号
 				}
-				
+
 				/*
 				char* endPtr = 0;
 				//默认获取主线程id
@@ -413,7 +413,7 @@ void* DebuggerProc(void* param) {
 				}
 				else if (split[0] == "set_wrk") { //set_wrk <worker_id>
 					char* endPtr;
-					uint32_t worker_id =  strtol(split[1].c_str(), &endPtr, 10);
+					uint32_t worker_id = strtol(split[1].c_str(), &endPtr, 10);
 					if (vm->tasks.find(worker_id) == vm->tasks.end()) {
 						debuggerImpl.SendToDebugger("err:invaild worker_id");
 					}
@@ -422,9 +422,9 @@ void* DebuggerProc(void* param) {
 					}
 				}
 			}
-			
 
-			
+
+
 		}
 	}
 }
@@ -455,9 +455,9 @@ void Debugger_CheckPoint(VMWorker* worker, uint32_t eip, uint16_t packageId)
 		BreakPoints[eip].push_back(key);
 	}
 	if (debuggerImpl.IsDebuggerConnected()) {
-		
+
 		uint16_t nameStrId = worker->getCallingLink().back().functionInfo->funcNameStrId;
-		if (need_step_over.find(worker) != need_step_over.end() || 
+		if (need_step_over.find(worker) != need_step_over.end() ||
 			NeedBreakPoint(nameStrId, eip, packageId)) {
 
 			platform.MutexLock(DebugGEL);
