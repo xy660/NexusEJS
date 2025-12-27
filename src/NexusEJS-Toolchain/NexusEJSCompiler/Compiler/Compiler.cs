@@ -912,6 +912,11 @@ namespace ScriptRuntime.Core
                 catchVarImplSize += instructionSize[OpCode.STORE_LOCAL];
                 catchVarImplSize += instructionSize[OpCode.POP];
 
+                if (LocalVariableDefines.Contains(ast.Childrens[1].Raw))
+                {
+                    throw new CompileException(ast.line, $"\"{ast.Childrens[1].Raw}\" has already been declared");
+                }
+                LocalVariableDefines.Add(ast.Childrens[1].Raw);
 
                 //[TRY_ENTER(TRYBLOCK.length + JMP.length)][TRYBLOCK][JMP(CATCH.length + [加载指令].length)][(加载指令)][CATCH];
                 uint tryBlockOffset = (uint)(baseOffset + ms.Position + instructionSize[OpCode.TRY_ENTER]);
@@ -930,11 +935,9 @@ namespace ScriptRuntime.Core
                 //创建新的作用域执行catch，大小：catch块+catch序言-SCOPE_PUSH指令大小
                 Emit(OpCode.SCOPE_PUSH, catchBlock.Length + catchVarImplSize - instructionSize[OpCode.SCOPE_PUSH]);
                 Emit(OpCode.STORE_LOCAL, ast.Childrens[1].Raw); //直接存入
-                if (LocalVariableDefines.Contains(ast.Childrens[1].Raw))
-                {
-                    throw new CompileException(ast.line, $"\"{ast.Childrens[1].Raw}\" has already been declared");
-                }
-                LocalVariableDefines.Add(ast.Childrens[1].Raw);
+
+                
+
                 Emit(OpCode.POP); //弹出剩下的异常对象
                 ms.Write(catchBlock);
                 sb.AppendLine(catchBlockAsm);
