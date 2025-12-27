@@ -1,4 +1,4 @@
-﻿using nejsc.Utils;
+using nejsc.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -912,15 +912,18 @@ namespace ScriptRuntime.Core
                 catchVarImplSize += instructionSize[OpCode.STORE_LOCAL];
                 catchVarImplSize += instructionSize[OpCode.POP];
 
+                
+
+                //[TRY_ENTER(TRYBLOCK.length + JMP.length)][TRYBLOCK][JMP(CATCH.length + [加载指令].length)][(加载指令)][CATCH];
+                uint tryBlockOffset = (uint)(baseOffset + ms.Position + instructionSize[OpCode.TRY_ENTER]);
+                var (tryBlock, tryBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, tryBlockOffset)).Compile(ast.Childrens[0]);
+
                 if (LocalVariableDefines.Contains(ast.Childrens[1].Raw))
                 {
                     throw new CompileException(ast.line, $"\"{ast.Childrens[1].Raw}\" has already been declared");
                 }
                 LocalVariableDefines.Add(ast.Childrens[1].Raw);
 
-                //[TRY_ENTER(TRYBLOCK.length + JMP.length)][TRYBLOCK][JMP(CATCH.length + [加载指令].length)][(加载指令)][CATCH];
-                uint tryBlockOffset = (uint)(baseOffset + ms.Position + instructionSize[OpCode.TRY_ENTER]);
-                var (tryBlock, tryBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, tryBlockOffset)).Compile(ast.Childrens[0]);
                 uint catchBlockOffset = (uint)(tryBlockOffset + tryBlock.Length + instructionSize[OpCode.JMP] + catchVarImplSize);
                 var (catchBlock, catchBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, catchBlockOffset)).Compile(ast.Childrens[2]);
                 //标记try块大小，最后那个JMP指令也算在try块
