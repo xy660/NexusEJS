@@ -50,18 +50,18 @@ void* TaskEntry(void* param) {
 	TaskStartParam taskParam = *(TaskStartParam*)param;
 	platform.MemoryFree(param); //拷贝完成后回收堆内存
 
-	platform.MutexLock(taskParam.VMInstance->globalSymbolLock);//上锁访问共享
+	platform.MutexLock(taskParam.VMInstance->currentGC->GCWorkersVecLock);//上锁访问共享
 
 	auto& context = taskParam.VMInstance->tasks[taskParam.taskId];
 	context.status = TaskContext::RUNNING;
 	context.worker = new VMWorker(taskParam.VMInstance);
 	if (!context.worker) {
-		platform.MutexUnlock(taskParam.VMInstance->globalSymbolLock);
+		platform.MutexUnlock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
 		return NULL; //分配失败静默失败
 	}
 	
 
-	platform.MutexUnlock(taskParam.VMInstance->globalSymbolLock);
+	platform.MutexUnlock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
 
 	//开始调用脚本函数
 	std::vector<VariableValue> paramList;
@@ -70,19 +70,19 @@ void* TaskEntry(void* param) {
 	auto res = taskParam.VMInstance->InvokeCallbackWithWorker(context.worker, context.function, paramList, NULL);
 	
 	//处理返回值
-	platform.MutexLock(taskParam.VMInstance->globalSymbolLock); 
+	platform.MutexLock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
 
 	context = taskParam.VMInstance->tasks[taskParam.taskId]; //重新获取避免地址变化
 	context.result = res;
 	context.status = TaskContext::STOPED;
 
-	platform.MutexUnlock(taskParam.VMInstance->globalSymbolLock);
+	platform.MutexUnlock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
 
 	return NULL;
 }
 
 VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker) {
-	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT,VMObject::PROTECTED);
 	vmo->implement.objectImpl["id"] = CreateNumberVariable(id);
 	vmo->implement.objectImpl["threadId"] = CreateNumberVariable(threadId);
 	vmo->implement.objectImpl["isRunning"] = TaskObj_isRunningFunc;
@@ -318,12 +318,12 @@ void InitByteBufferSingleFunc() {
 
 		if (strLength == 0) {
 
-			return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(""));
+			return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject("",VMObject::PROTECTED));
 		}
 
 		std::string utf8_str((char*)info.data + offset, strLength);
 
-		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(utf8_str));
+		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(utf8_str,VMObject::PROTECTED));
 		});
 
 	// writeUTF8(offset, string, addNull?) - 写入UTF-8字符串，addNull可选
@@ -426,7 +426,7 @@ void InitByteBufferSingleFunc() {
 		std::wstring result(buffer, actualLength);
 
 		//转换成内部utf8
-		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(wstring_to_string(result)));
+		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(wstring_to_string(result),VMObject::PROTECTED));
 		});
 
 	// writeUTF16(offset, string, addNull?) - 写入UTF-16字符串，addNull可选
@@ -518,7 +518,7 @@ VMObject* CreateByteBufferObject(uint32_t size,VMWorker* worker) {
 	uint32_t id = byteBufferIdSeed++;
 	info.length = size;
 	bindedBytebuffer[id] = info;
-	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT,VMObject::PROTECTED);
 
 	vmo->implement.objectImpl = BufferObjTemplate; //拷贝内置成员方法
 
@@ -797,10 +797,10 @@ void SingleSystemFuncInit() {
 
 	/***下面项初始化后存储都必须要在SingleSystemFunctionStore中存储指针***/
 	TaskObj_isRunningFunc = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker) -> VariableValue {
-		platform.MutexLock(worker->VMInstance->globalSymbolLock);
+		platform.MutexLock(worker->VMInstance->currentGC->GCWorkersVecLock);
 		uint32_t taskId = (uint32_t)thisValue->implement.objectImpl["id"].content.number;
 		bool res = worker->VMInstance->tasks[taskId].status == TaskContext::RUNNING;
-		platform.MutexUnlock(worker->VMInstance->globalSymbolLock);
+		platform.MutexUnlock(worker->VMInstance->currentGC->GCWorkersVecLock);
 		return CreateBooleanVariable(res);
 		});
 	//SingleSystemFunctionStore.push_back(TaskObj_isRunningFunc.content.function);
@@ -814,28 +814,31 @@ void SingleSystemFuncInit() {
 
 		auto& objContainer = thisValue->implement.objectImpl;
 
-		platform.MutexLock(worker->VMInstance->globalSymbolLock);
+		platform.MutexLock(worker->VMInstance->currentGC->GCWorkersVecLock);
 		auto& context = worker->VMInstance->tasks[(uint32_t)objContainer["id"].content.number];
-		platform.MutexUnlock(worker->VMInstance->globalSymbolLock);
+		platform.MutexUnlock(worker->VMInstance->currentGC->GCWorkersVecLock);
 
 		uint32_t start = platform.TickCount32();
 
+		worker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
 		while (context.status == TaskContext::RUNNING) {
 			uint32_t duration = platform.TickCount32() - start;
 			if (duration > targetTime || duration < 0) { //如果溢出直接视作超时
+				worker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
 				return CreateBooleanVariable(false);
 			}
 			platform.ThreadSleep(1);
 		}
+		worker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
 		return CreateBooleanVariable(true);
 		});
 	//SingleSystemFunctionStore.push_back(TaskObj_waitTimeoutFunc.content.function);
 
 	TaskObj_getResultFunc = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker) -> VariableValue {
-		platform.MutexLock(worker->VMInstance->globalSymbolLock);
+		platform.MutexLock(worker->VMInstance->currentGC->GCWorkersVecLock);
 		uint32_t taskId = (uint32_t)thisValue->implement.objectImpl["id"].content.number;
 		auto result = worker->VMInstance->tasks[taskId].result;
-		platform.MutexUnlock(worker->VMInstance->globalSymbolLock);
+		platform.MutexUnlock(worker->VMInstance->currentGC->GCWorkersVecLock);
 		return result;
 	});
 	//SingleSystemFunctionStore.push_back(TaskObj_getResultFunc.content.function);
@@ -851,8 +854,9 @@ void SingleSystemFuncInit() {
 #endif
 			return CreateBooleanVariable(false); //返回false表示控制对象还不能销毁
 		}
-
+		platform.MutexLock(worker->VMInstance->currentGC->GCWorkersVecLock);
 		worker->VMInstance->tasks.erase(taskId);
+		platform.MutexUnlock(worker->VMInstance->currentGC->GCWorkersVecLock);
 #ifdef _DEBUG
 		//wprintf("TaskObject.finalize() true %ws\n", thisValue->ToString().c_str());
 #endif
@@ -911,7 +915,9 @@ void BuildinStdlib_Init()
 		context.processEntry = TaskEntry;
 		context.function = args[0];
 		
+		platform.MutexLock(currentWorker->VMInstance->currentGC->GCWorkersVecLock);
 		currentVM->tasks[currentTaskId] = context;
+		platform.MutexUnlock(currentWorker->VMInstance->currentGC->GCWorkersVecLock);
 
 		TaskStartParam* taskParam = (TaskStartParam*)platform.MemoryAlloc(sizeof(TaskStartParam));
 
@@ -986,14 +992,34 @@ void BuildinStdlib_Init()
 
 		if (!nejsBuffer || fileSize == 0) {
 			currentWorker->ThrowError("fail to read the nejs file");
+			if (nejsBuffer) {
+				platform.MemoryFree(nejsBuffer);
+				return VariableValue();
+			}
 		}
 		
 		uint16_t id = currentWorker->VMInstance->LoadPackedProgram(nejsBuffer, fileSize);
+
+		if (id == 0) {
+			currentWorker->ThrowError("invaild nejs package");
+			platform.MemoryFree(nejsBuffer);
+			return VariableValue();
+		}
 		
 		platform.MemoryFree(nejsBuffer); //释放读取文件分配的内存
 
-		std::string entryName = "main_entry";
-		return currentWorker->VMInstance->InitAndCallEntry(entryName, id);
+		auto& package = currentWorker->VMInstance->loadedPackages[id];
+		
+		VariableValue ret; //失败的默认返回值
+
+		auto find = package.bytecodeFunctions.find("main_entry");
+
+		if (find != package.bytecodeFunctions.end()) {
+			std::vector<VariableValue> args;
+			ret = currentWorker->VMInstance->InvokeCallback((*find).second, args, NULL);
+		}
+
+		return ret;
 
 		});
 
@@ -1011,7 +1037,7 @@ void BuildinStdlib_Init()
 		return CreateNumberVariable(result);
 	});
 	NumberClassObject->implement.objectImpl["toString"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
-		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(args[0].ToString()));
+		return CreateReferenceVariable(currentWorker->VMInstance->currentGC->GC_NewStringObject(args[0].ToString(),VMObject::PROTECTED));
 	});
 	SystemBuildinSymbols["Number"] = CreateReferenceVariable(NumberClassObject);
 

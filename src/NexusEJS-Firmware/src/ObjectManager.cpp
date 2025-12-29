@@ -35,7 +35,9 @@ void ObjectManager_Init()
 		}
 
 		//传入参数全部转字符串作为key查找
-		VariableValue ret = thisValue->implement.objectImpl[args[0].ToString()];
+		VariableValue ret;
+		ret.varType = ValueType::BRIDGE;
+		ret.content.bridge_ref = &thisValue->implement.objectImpl[args[0].ToString()];
 		ret.thisValue = thisValue;
 		return ret;
 

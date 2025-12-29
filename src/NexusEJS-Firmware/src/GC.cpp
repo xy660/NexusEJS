@@ -3,6 +3,7 @@
 #include <unordered_set>
 #include <unordered_map>
 #include <stack>
+#include <functional>
 #include "VariableValue.h"
 #include "PlatformImpl.h"
 #include "GC.h"
@@ -24,25 +25,43 @@ void GC::enterSTWSafePoint() {
 	STW_ArrivedThreadCount--; //减少计数，表示线程恢复运行
 	platform.MutexUnlock(GCSTWCounterLock);
 }
-
-void GC::enterNativeFunc()
-{
+/*
+void GC::enterLongBlockWithoutVMObject() {
 	platform.MutexLock(GCSTWCounterLock);
-	EnteredNativeTaskCount++;
+	EnteredLongBlockCount++;
 	platform.MutexUnlock(GCSTWCounterLock);
 }
 
-void GC::leaveNativeFunc()
-{
+void GC::leaveLongBlockWithoutVMObject() {
 	platform.MutexLock(GCSTWCounterLock);
-	EnteredNativeTaskCount--;
+	EnteredLongBlockCount--;
 	platform.MutexUnlock(GCSTWCounterLock);
-
-	//从原生代码返回后检查GC是否正在进行，避免误修改栈
 	if (GCRequired) {
 		enterSTWSafePoint();
 	}
 }
+*/
+void GC::IgnoreWorkerCount_Inc()
+{
+	platform.MutexLock(GCSTWCounterLock);
+	IgnoreWorkerCount++;
+	platform.MutexUnlock(GCSTWCounterLock);
+}
+
+void GC::IgnoreWorkerCount_Dec()
+{
+	platform.MutexLock(GCSTWCounterLock);
+	IgnoreWorkerCount--;
+	platform.MutexUnlock(GCSTWCounterLock);
+
+	//如果GC正在工作的话利用阻塞锁等待GC回收完成
+	if (GCRequired) {
+		platform.MutexLock(GCBlockEventLock);
+		platform.MutexUnlock(GCBlockEventLock);
+	}
+}
+
+
 
 void GC::StopTheWorld() {
 
@@ -56,7 +75,10 @@ void GC::StopTheWorld() {
 
 	//等待所有活的Worker线程进入安全点（不包括进入原生的线程）
 	uint32_t aliveWorkerCount = 0;
-	//对已经死亡的Worker执行清理，从vector移除并触发unique_ptr回收
+
+	//platform.MutexLock(GCObjectSetLock);
+	platform.MutexLock(GCWorkersVecLock);
+	//对已经死亡的Worker执行清理，从vector移除
 	for (auto it = bindingVM->workers.begin(); it != bindingVM->workers.end();) {
 		if ((*it)->getCallingLink().size() > 0) {
 			aliveWorkerCount++;
@@ -65,14 +87,21 @@ void GC::StopTheWorld() {
 		else {
 			// 从vector中移除已完成的worker
 			VMWorker* deadWorker = *it;
-			deadWorker->~VMWorker();
-			platform.MemoryFree(deadWorker);
-			it = bindingVM->workers.erase(it);
+			//检查是否是需要重用的外部worker
+			if (!deadWorker->keepAlive) {
+				deadWorker->~VMWorker();
+				platform.MemoryFree(deadWorker);
+				it = bindingVM->workers.erase(it);
+			}
+			else {
+				it++;
+			}
 		}
 	}
+	platform.MutexUnlock(GCWorkersVecLock);
 
 	uint32_t waittingStart = platform.TickCount32();
-	while (aliveWorkerCount > 0 && STW_ArrivedThreadCount < aliveWorkerCount - EnteredNativeTaskCount) {
+	while (aliveWorkerCount > 0 && STW_ArrivedThreadCount < aliveWorkerCount - IgnoreWorkerCount) {
 		platform.ThreadYield();
 	}
 	//暂停完成
@@ -88,6 +117,10 @@ void GC::ResumeTheWorld() {
 	//释放锁恢复虚拟机世界运行
 	platform.MutexUnlock(GCBlockEventLock);
 
+	//释放被占用的锁
+	//platform.MutexUnlock(GCWorkersVecLock);
+	//platform.MutexLock(GCObjectSetLock);
+
 	while (STW_ArrivedThreadCount > 0) {
 		platform.ThreadYield(); //等待所有线程恢复
 	}
@@ -99,6 +132,7 @@ GC::~GC() {
 	platform.MutexDestroy(GCBlockEventLock);
 	platform.MutexDestroy(GCObjectSetLock);
 	platform.MutexDestroy(GCWorkLock);
+	platform.MutexDestroy(GCWorkersVecLock);
 	//GC被卸载时VM肯定不再运行了	
 }
 
@@ -107,10 +141,12 @@ void GC::GCInit(VM* bindVM) {
 	GCBlockEventLock = platform.MutexCreate();
 	GCObjectSetLock = platform.MutexCreate();
 	GCWorkLock = platform.MutexCreate();
+	GCWorkersVecLock = platform.MutexCreate();
 	bindingVM = bindVM;
 }
 
-VMObject* GC::GC_NewObject(ValueType::IValueType type) {
+VMObject* GC::Internal_NewObject(ValueType::IValueType type) {
+
 	//检测剩余内存，是否需要GC
 	float freeMemoryPercent = platform.MemoryFreePercent();
 	if (freeMemoryPercent < LESS_MEMORY_TRIG_COLLECT) {
@@ -128,11 +164,25 @@ VMObject* GC::GC_NewObject(ValueType::IValueType type) {
 	platform.MutexLock(GCObjectSetLock);
 	allObjects.insert(alloc);
 	platform.MutexUnlock(GCObjectSetLock);
+
 	return alloc;
 }
 
-VMObject* GC::GC_NewStringObject(std::string str) {
-	VMObject* vmo = GC_NewObject(ValueType::STRING);
+//外部调用GC分配的对象带保护，外部程序需要手动清除保护位否则会导致内存泄露
+VMObject* GC::GC_NewObject(ValueType::IValueType type, VMObject::VMObjectProtectStatus status) {
+	VMObject* vmo = Internal_NewObject(type);
+	vmo->protectStatus = status; 
+	return vmo;
+}
+
+VMObject* GC::Internal_NewStringObject(std::string str) {
+	VMObject* vmo = Internal_NewObject(ValueType::STRING);
+	vmo->implement.stringImpl = str;
+	return vmo;
+}
+
+VMObject* GC::GC_NewStringObject(std::string str, VMObject::VMObjectProtectStatus status) {
+	VMObject* vmo = GC_NewObject(ValueType::STRING,status);
 	vmo->implement.stringImpl = str;
 	return vmo;
 }
@@ -152,17 +202,85 @@ void GC::GC_FreeObject(VMObject* vm_object) {
 }
 
 
-//深度优先遍历对象引用图标记存活对象
-void DFS_MarkObject(std::stack<VMObject*>& dfsStack,std::unordered_set<VMObject*>& allObjects,VM* VMInstance) {
+/*
+//深度优先遍历清除保护位
+void DFS_ClearObjectProtect(std::stack<VMObject*>& dfsStack, bool Value) {
 	while (!dfsStack.empty()) {
 		auto obj = dfsStack.top();
 		dfsStack.pop();
 
-		if (obj->marked) { //对象之间的引用是一个有环图，要做visited处理
+		if (obj->protectedObject != Value) { //对象之间的引用是一个有环图，要做visited处理
 			continue;
 		}
 
-		obj->marked = true;
+		obj->protectedObject = Value;
+
+		switch (obj->type)
+		{
+
+		case ValueType::ARRAY:
+		{
+			auto& vec = obj->implement.arrayImpl;
+			for (auto& variable : vec) {
+				VariableValue* current = variable.getRawVariable();
+				if (current->varType == ValueType::REF) {
+					dfsStack.push(current->content.ref);
+				}
+			}
+			break;
+		}
+		case ValueType::OBJECT:
+		{
+			auto& objmap = obj->implement.objectImpl;
+			for (auto& pair : objmap) {
+				VariableValue* current = pair.second.getRawVariable();
+				if (current->varType == ValueType::REF) {
+					dfsStack.push(current->content.ref);
+				}
+			}
+			break;
+		}
+		case ValueType::FUNCTION:
+		{
+			//检查内置闭包对象和prop内联对象
+			auto& funcImpl = obj->implement.closFuncImpl;
+			//直接遍历这两个内置对象的Value段压栈
+			if (funcImpl.closure) dfsStack.push(funcImpl.closure);
+			if (funcImpl.propObject) dfsStack.push(funcImpl.propObject);
+			break;
+		}
+		}
+	}
+}
+
+void GC::SetObjectProtect(VMObject* vmo, bool Value) {
+	std::stack<VMObject*> stack;
+	stack.push(vmo);
+	DFS_ClearObjectProtect(stack, Value);
+}
+
+*/
+
+//深度优先遍历对象引用图标记存活对象
+template<typename Func>
+void DFS_TravelObject(std::stack<VMObject*>& dfsStack,Func procObject, VM* VMInstance) {
+	while (!dfsStack.empty()) {
+		auto obj = dfsStack.top();
+		dfsStack.pop();
+
+		if (procObject(obj)) {
+			continue;
+		}
+
+		/*
+		if (obj->marked == mark && 
+			(obj->protectStatus == VMObject::PROTECTED) == clearProtect) { //对象之间的引用是一个有环图，要做visited处理
+			continue;
+		}
+
+		if(mark) obj->marked = true;
+		if(clearProtect) obj->protectStatus = VMObject::NONE; //可达的就取消保护
+		*/
 
 		if (obj->type == ValueType::ARRAY) { //如果是数组就遍历数组引用标记
 			//auto& vec = std::get<std::vector<VariableValue>>(obj->implement);
@@ -204,11 +322,11 @@ void DFS_MarkObject(std::stack<VMObject*>& dfsStack,std::unordered_set<VMObject*
 void GC::GC_Collect() {
 	//printf("%d called\n", GetCurrentThreadId());
 	bool locked = platform.MutexTryLock(GCWorkLock);
-	printf("gc start %d\n", allObjects.size());
 	if (!locked) {
 		//printf("working!");
 		return;
 	}
+	printf("gc start %d\n", allObjects.size());
 	Internal_GC_Collect();
 	printf("gc end %d\n", allObjects.size());
 	platform.MutexUnlock(GCWorkLock);
@@ -225,8 +343,12 @@ void GC::Internal_GC_Collect() {
 
 	prevGCTime = platform.TickCount32(); //更新上一次GC的时间
 
+	/*
 	uint32_t startTime = platform.TickCount32();
 	uint32_t startObjectCount = allObjects.size();
+
+	uint32_t timePosition = platform.TickCount32();
+	*/
 
 
 	StopTheWorld();
@@ -242,6 +364,8 @@ void GC::Internal_GC_Collect() {
 		}
 	}
 
+	//能抵达这里的情况必须保证世界已经暂停无并发问题，如果这里因为并发报错
+	//那就说明暂停世界逻辑有问题
 
 	//遍历栈起点，将所有持有的局部变量设置为root
 	for (auto worker : bindingVM->workers) {
@@ -289,25 +413,62 @@ void GC::Internal_GC_Collect() {
 		}
 	}
 
-	//扫描可达对象
-	DFS_MarkObject(dfsStack, allObjects,bindingVM);
+	auto defaultMarkProc = [](VMObject* vmo) -> bool {
+		if (vmo->marked) return true; //剪枝
+
+		vmo->marked = true;
+		vmo->protectStatus = VMObject::NONE; //完全清空保护标记
+
+		return false;
+		};
+
+	//扫描可达对象(加清除保护)
+	DFS_TravelObject(dfsStack, defaultMarkProc, bindingVM);
+
 
 	std::vector<VMObject*> finalizeQueue;
 	//开始标记所有不可达但携带finalize方法的对象引用图，此时认为他还是有效对象
 	for (VMObject* vmo : allObjects) {
-		if (!vmo->marked && vmo->type == ValueType::OBJECT) {
-			auto findFinalize = vmo->implement.objectImpl.find("finalize");
-			if (findFinalize != vmo->implement.objectImpl.end()) {
-				//这里使用getContentType判断是否是函数因为可能存在闭包的对象实现函数
-				if ((*findFinalize).second.getContentType() == ValueType::FUNCTION) {
-					//送入终结器调用队列，暂时不回收它的内存
-					finalizeQueue.push_back(vmo);
-					dfsStack.push(vmo); //标记他所有引用的对象，保证存活避免垂悬指针
-					DFS_MarkObject(dfsStack, allObjects,bindingVM);
+		if (!vmo->marked) {
+			if (vmo->type == ValueType::OBJECT) {
+				auto findFinalize = vmo->implement.objectImpl.find("finalize");
+				if (findFinalize != vmo->implement.objectImpl.end()) {
+					//这里使用getContentType判断是否是函数因为可能存在闭包的对象实现函数
+					if ((*findFinalize).second.getContentType() == ValueType::FUNCTION) {
+						//送入终结器调用队列，暂时不回收它的内存
+						finalizeQueue.push_back(vmo);
+						dfsStack.push(vmo); //标记他所有引用的对象，保证存活避免垂悬指针
+						DFS_TravelObject(dfsStack, defaultMarkProc, bindingVM);
+					}
 				}
+			}
+			else if (vmo->protectStatus == VMObject::PROTECTED) { //标记受保护的
+				dfsStack.push(vmo);
+				DFS_TravelObject(dfsStack, [](VMObject* vmo) -> bool {
+					if (vmo->marked) return true;
+
+					vmo->marked = true;
+
+					return false;
+
+					}, bindingVM);
+			}
+			else if (vmo->protectStatus == VMObject::NOT_PROTECTED) { //标记刚被摘除的root，清除所有对象
+				dfsStack.push(vmo);
+				DFS_TravelObject(dfsStack, [](VMObject* vmo) -> bool {
+
+					if (vmo->protectStatus == VMObject::NONE) return true;
+
+					vmo->protectStatus = VMObject::NONE;
+
+					return false;
+
+					}, bindingVM);
+				//不进行标记，仅清除保护
 			}
 		}
 	}
+
 
 	//标记完有用的对象接下来删掉所有没用的
 
@@ -315,9 +476,10 @@ void GC::Internal_GC_Collect() {
 		VMObject* currentObject = *it;
 		if (!currentObject->marked) {
 			GC_FreeObject(currentObject);
-			platform.MutexLock(GCObjectSetLock);
+			//这里不需要锁，如果出现问题表示STW不成功
+			//platform.MutexLock(GCObjectSetLock);
 			it = allObjects.erase(it);
-			platform.MutexUnlock(GCObjectSetLock);
+			//platform.MutexUnlock(GCObjectSetLock);
 			continue;
 		}
 		else {
@@ -345,6 +507,18 @@ void GC::Internal_GC_Collect() {
 			it = bindingVM->UnloadPackageWithIterator(it);
 		}
 	}
+
+	/*
+
+	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);
+
+	uint32_t protCount = 0;
+	for (auto obj : allObjects) {
+		if (obj->protectStatus == VMObject::PROTECTED) protCount++;
+	}
+
+	printf("protect count:%d\n", protCount);
+	*/
 
 	//清理完毕，恢复世界
 	ResumeTheWorld();
@@ -415,23 +589,4 @@ void GC::Internal_GC_Collect() {
 		}
 	}
 
-}
-
-VariableValue GC::InvokeBytecodeFinalizeFunc(ByteCodeFunction& func,VMObject*thisValue) {
-	VMWorker worker(bindingVM);
-	FuncFrame frame;
-	frame.byteCode = func.byteCode;
-	frame.byteCodeLength = func.byteCodeLength;
-	frame.functionInfo = &func;
-	ScopeFrame defaultScope;
-	//初始化默认作用域
-	defaultScope.byteCodeLength = func.byteCodeLength;
-	defaultScope.byteCodeStart = 0;
-	defaultScope.ep = 0;
-	defaultScope.spStart = 0;
-	defaultScope.localvarStart = 0;
-	frame.functionEnvSymbols["this"] = CreateReferenceVariable(thisValue);
-	frame.scopeStack.push_back(defaultScope);
-	worker.getCallingLink().push_back(frame);
-	return worker.VMWorkerTask();
 }

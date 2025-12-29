@@ -581,7 +581,10 @@ void TCPSocketObjectTempInit() {
               currentWorker->ThrowError("out of range");
               return VariableValue();
             }
+            //忽略GC长等待
+            currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
             client->write_P((const char*)(bufinfo.data + offset), length);
+            currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
             return VariableValue();
           }
         }
@@ -591,7 +594,7 @@ void TCPSocketObjectTempInit() {
 
   // recv(buf,offset,buf_length) : number 返回值表示收到的大小
   TCPSocketObjectTemplate["recv"] = VM::CreateSystemFunc(
-      1,
+      3,
       [](std::vector<VariableValue>& args, VMObject* thisValue,
          VMWorker* currentWorker) -> VariableValue {
         if (args[2].getContentType() != ValueType::NUM ||
@@ -626,7 +629,10 @@ void TCPSocketObjectTempInit() {
               currentWorker->ThrowError("out of range");
               return VariableValue();
             }
+            //GC忽略不操作VMObject时的长时间阻塞IO
+            currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
             uint32_t ret = client->readBytes(bufinfo.data + offset, length);
+            currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
             return CreateNumberVariable(ret);
           }
         }
@@ -670,7 +676,10 @@ void TCPSocketObjectTempInit() {
               currentWorker->ThrowError("out of range");
               return VariableValue();
             }
+            //让GC忽略长时间阻塞访问
+            currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
             bool ret = receiveExactSize(*client, bufinfo.data, bufinfo.length);
+            currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
             return CreateBooleanVariable(ret);
           }
         }

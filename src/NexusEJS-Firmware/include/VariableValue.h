@@ -103,6 +103,13 @@ class VMObject {
 public:
     
     bool marked; //GC要用
+
+    enum VMObjectProtectStatus {
+        NONE,
+        PROTECTED,
+        NOT_PROTECTED,
+    } protectStatus;
+    
     //bool flag_isLocalObject : 1;
     ValueType::IValueType type = ValueType::NULLREF; //存储类型
 
@@ -174,6 +181,7 @@ public:
         //this->flag_isLocalObject = false;
         this->type = type;
         this->marked = false;
+        this->protectStatus = NONE;
         this->mutex = NULL;
         switch (type)
         {
@@ -356,7 +364,6 @@ inline VariableValue CreateBooleanVariable(bool value) {
     ret.content.boolean = value;
     return ret;
 }
-
 inline VariableValue CreateReferenceVariable(VMObject* value,bool readOnly = false) {
     VariableValue ret;
     ret.varType = ValueType::REF;

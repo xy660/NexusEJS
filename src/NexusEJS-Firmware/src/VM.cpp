@@ -195,7 +195,7 @@ VariableValue VMWorker::Init(ByteCodeFunction& entry_func,std::vector<VariableVa
 	return VMWorkerTask();
 }
 void VMWorker::ThrowError(std::string messageString) {
-	auto messageObject = VMInstance->currentGC->GC_NewStringObject(messageString);
+	auto messageObject = VMInstance->currentGC->Internal_NewStringObject(messageString);
 	VariableValue message;
 	message.varType = ValueType::REF;
 	message.content.ref = messageObject;
@@ -250,7 +250,7 @@ void VMWorker::ThrowError(VariableValue& messageString)
 
 #endif
 
-	VMObject* errorObject = VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+	VMObject* errorObject = VMInstance->currentGC->Internal_NewObject(ValueType::OBJECT);
 	errorObject->implement.objectImpl["message"] = messageString;
 
 	std::ostringstream stream;
@@ -271,7 +271,7 @@ void VMWorker::ThrowError(VariableValue& messageString)
 	}
 
 	errorObject->implement.objectImpl["stackTrace"] = CreateReferenceVariable(
-		VMInstance->currentGC->GC_NewStringObject(stream.str())
+		VMInstance->currentGC->Internal_NewStringObject(stream.str())
 	);
 
 	for (int i = callFrames.size() - 1; i >= 0; i--) {
@@ -373,9 +373,9 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 	}
 	*/
 
-	VMObject* closureFunction = worker->VMInstance->currentGC->GC_NewObject(ValueType::FUNCTION);
+	VMObject* closureFunction = worker->VMInstance->currentGC->Internal_NewObject(ValueType::FUNCTION);
 	if (closureContainer.size() > 0) {
-		VMObject* closureObject = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+		VMObject* closureObject = worker->VMInstance->currentGC->Internal_NewObject(ValueType::OBJECT);
 		//拷贝自己到闭包环境确保递归调用有效
 		closureContainer[sfn->funcImpl.local_func.funcName] = CreateReferenceVariable(closureFunction); 
 		closureObject->implement.objectImpl = closureContainer; //拷贝过去
@@ -602,7 +602,7 @@ VariableValue VMWorker::VMWorkerTask() {
 				if (left->getContentType() == ValueType::STRING || right->getContentType() == ValueType::STRING) {
 					std::string resstr = left->ToString() + right->ToString();
 					res.varType = ValueType::REF;
-					res.content.ref = VMInstance->currentGC->GC_NewObject(ValueType::STRING);
+					res.content.ref = VMInstance->currentGC->Internal_NewObject(ValueType::STRING);
 					res.content.ref->implement.stringImpl = resstr;
 				}
 				else {
@@ -899,11 +899,16 @@ VariableValue VMWorker::VMWorkerTask() {
 				continue;
 			}
 			else if (funcInfo->type == ScriptFunction::System) {
-				currentGC->enterNativeFunc(); //GC标记原生边界
+				//currentGC->IgnoreWorkerCount_Inc(); //GC标记原生边界
 				auto funcResult = funcInfo->InvokeFunc(arguments, funcRefVal->thisValue,NULL, this);
-				currentGC->leaveNativeFunc();
+				//currentGC->IgnoreWorkerCount_Dec();
 				//如果原生函数未发生异常就压入返回值
+				
 				if (!needResetLoop) {
+					if (funcResult.varType == ValueType::REF) {
+						funcResult.content.ref->protectStatus = VMObject::NOT_PROTECTED;
+						//currentGC->SetObjectProtect(funcResult.content.ref,false);
+					}
 					currentFn->virtualStack.push_back(funcResult);
 				}
 			}
@@ -963,7 +968,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			else {
 				VariableValue exmsg;
 				exmsg.varType = ValueType::REF;
-				exmsg.content.ref = VMInstance->currentGC->GC_NewObject(ValueType::STRING);
+				exmsg.content.ref = VMInstance->currentGC->Internal_NewObject(ValueType::STRING);
 				exmsg.content.ref->implement.stringImpl = "exception has thrown";
 				ThrowError(exmsg);
 			}
@@ -974,7 +979,7 @@ VariableValue VMWorker::VMWorkerTask() {
 		}
 		case OpCode::NEW_OBJ:
 		{
-			VMObject* new_object = VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+			VMObject* new_object = VMInstance->currentGC->Internal_NewObject(ValueType::OBJECT);
 
 			VariableValue v;
 			v.varType = ValueType::REF;
@@ -984,7 +989,7 @@ VariableValue VMWorker::VMWorkerTask() {
 		}
 		case OpCode::NEW_ARR:
 		{
-			VMObject* new_array = VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
+			VMObject* new_array = VMInstance->currentGC->Internal_NewObject(ValueType::ARRAY);
 			//new (&new_array->implement.arrayImpl) std::vector<VariableValue>();
 			VariableValue v;
 			v.varType = ValueType::REF;
@@ -1110,7 +1115,7 @@ VariableValue VMWorker::VMWorkerTask() {
 
 				//需要时分配
 				if (!parent->content.ref->implement.closFuncImpl.propObject) {
-					parent->content.ref->implement.closFuncImpl.propObject = currentGC->GC_NewObject(ValueType::OBJECT);
+					parent->content.ref->implement.closFuncImpl.propObject = currentGC->Internal_NewObject(ValueType::OBJECT);
 				}
 
 				VMObject* propObject = parent->content.ref->implement.closFuncImpl.propObject;
@@ -1248,7 +1253,7 @@ VM::VM(GC* gc) {
 
 	//内置全局对象，上面查找需要用到，然后后面文档提一下不要乱改global对象类型
 	//后续VariableValue内置一个readonly属性吧，防止开发者乱改
-	auto globalObject = currentGC->GC_NewObject(ValueType::OBJECT);
+	auto globalObject = currentGC->Internal_NewObject(ValueType::OBJECT);
 	auto globalObjectRef = CreateReferenceVariable(globalObject);
 	globalObjectRef.readOnly = true;
 	std::string globalObjectName = "global";

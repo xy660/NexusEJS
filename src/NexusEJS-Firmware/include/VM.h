@@ -2,7 +2,7 @@
 
 #define VM_VERSION_NUMBER 4
 
-#define VM_VERSION_STR "V1.3.3"
+#define VM_VERSION_STR "V1.4.0"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
@@ -80,10 +80,14 @@ private:
 	std::vector<FuncFrame> callFrames;
 
 	bool needResetLoop = false;
+
+	
 	
 	FuncFrame* GetCurrentFrame();
 
 public:
+
+	bool keepAlive = false;
 
 	uint32_t currentWorkerId; //当前工作id
 
@@ -176,8 +180,10 @@ public:
 
 	VariableValue InitAndCallEntry(std::string& name, uint16_t id);
 
+	//此函数不会作为嵌套子worker使用，仅在作为真线程时使用
 	VariableValue InvokeCallbackWithWorker(VMWorker* worker, VariableValue& function, std::vector<VariableValue>& args, VMObject* thisValue);
 
+	//基于临时worker的回调
 	VariableValue InvokeCallbackWithTempWorker(VMWorker* worker, VariableValue& function, std::vector<VariableValue>& args, VMObject* thisValue);
 
 	//只能接收字节码函数，请勿传入原生函数

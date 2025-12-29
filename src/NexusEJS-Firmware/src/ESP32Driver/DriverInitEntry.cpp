@@ -401,10 +401,16 @@ void ESP32_SystemApi_Init(VM* VMInstance) {
           return VariableValue();
         }
 
+        
+
         if (args.size() > 0) {
           uint32_t delayTime = (uint32_t)args[0].content.number;
+          currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
           delay(delayTime);
+          currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
         }
+
+        
 
         return VariableValue();
       });
@@ -420,10 +426,16 @@ void ESP32_SystemApi_Init(VM* VMInstance) {
           return VariableValue();
         }
 
+        
+
         if (args.size() > 0) {
           uint32_t delayTime = (uint32_t)args[0].content.number;
+          currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
           delayMicroseconds(delayTime);
+          currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
         }
+
+        
 
         return VariableValue();
       });

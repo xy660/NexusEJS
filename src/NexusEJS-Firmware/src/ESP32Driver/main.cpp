@@ -40,8 +40,12 @@ void setup()
 
     RegisterSystemFunc("delay", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
     {
+
+    currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
     
     vTaskDelay((uint32_t)args[0].content.number / portTICK_PERIOD_MS);
+
+    currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
 
     return VariableValue(); 
     });

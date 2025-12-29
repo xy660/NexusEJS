@@ -6,6 +6,7 @@
 #include <cstring>
 #include <vector>
 
+
 //字符大小，目前修改为UTF8所以是1字节
 #define CHAR_SIZE 1
 
@@ -191,17 +192,16 @@ PackageContext* VM::GetPackageByName(std::string& name) {
 }
 
 VariableValue VM::InitAndCallEntry(std::string& name,uint16_t id) {
-	platform.MutexLock(this->globalSymbolLock);
-	/*
-	this->workers.push_back(std::unique_ptr<VMWorker>(new VMWorker(this)));
-	VMWorker* worker = this->workers.back().get();
-	*/
+
 	VMWorker* worker = (VMWorker*)platform.MemoryAlloc(sizeof(VMWorker));
 	new (worker) VMWorker(this);
+
+	platform.MutexLock(currentGC->GCWorkersVecLock);
 	this->workers.push_back(worker); //注册并接收GC管理
+	platform.MutexUnlock(currentGC->GCWorkersVecLock);
 
 	if (loadedPackages.find(id) == loadedPackages.end()) {
-		platform.MutexUnlock(this->globalSymbolLock); //无此id返回NULLREF
+		//无此id返回NULLREF
 		return VariableValue();
 	}
 	PackageContext& package = loadedPackages[id];
@@ -213,15 +213,13 @@ VariableValue VM::InitAndCallEntry(std::string& name,uint16_t id) {
 	}
 	
 	if (entryRef->varType != ValueType::FUNCTION) {
+		platform.MutexLock(currentGC->GCWorkersVecLock);
 		this->workers.pop_back();
+		platform.MutexUnlock(currentGC->GCWorkersVecLock);
 		return VariableValue();
 	}
 	ByteCodeFunction& entry = entryRef->content.function->funcImpl.local_func;
-	//TaskContext context;
-	//context.id = this->lastestTaskId++;
-	//context.
 
-	platform.MutexUnlock(this->globalSymbolLock);
 	std::vector<VariableValue> args; //main函数无参数
 	uint32_t current_workerid = lastestTaskId++;
 	worker->currentWorkerId = current_workerid;
@@ -230,7 +228,9 @@ VariableValue VM::InitAndCallEntry(std::string& name,uint16_t id) {
 	context.id = current_workerid;
 	context.status = TaskContext::RUNNING;
 	context.worker = worker;
+	platform.MutexLock(currentGC->GCWorkersVecLock);
 	tasks[current_workerid] = context; //注册到VM
+	platform.MutexUnlock(currentGC->GCWorkersVecLock);
 	return worker->Init(entry,args);
 
 }
@@ -271,10 +271,8 @@ VariableValue VM::InvokeCallbackWithWorker(VMWorker* worker,VariableValue& funct
 	}
 
 	//加锁
-	platform.MutexLock(this->globalSymbolLock);
+	platform.MutexLock(currentGC->GCWorkersVecLock);
 	this->workers.push_back(worker);
-	platform.MutexUnlock(this->globalSymbolLock);
-
 	uint32_t current_workerid = lastestTaskId++;
 	worker->currentWorkerId = current_workerid;
 	TaskContext context;
@@ -283,6 +281,8 @@ VariableValue VM::InvokeCallbackWithWorker(VMWorker* worker,VariableValue& funct
 	context.status = TaskContext::RUNNING;
 	context.worker = worker;
 	tasks[current_workerid] = context; //注册到VM
+
+	platform.MutexUnlock(currentGC->GCWorkersVecLock);
 
 
 	return worker->Init(code->funcImpl.local_func, args, &env);
@@ -322,10 +322,7 @@ VariableValue VM::InvokeCallbackWithTempWorker(VMWorker* worker,VariableValue& f
 		env["this"] = CreateReferenceVariable(thisValue);
 	}
 
-	//加锁
-	platform.MutexLock(this->globalSymbolLock);
-	this->workers.push_back(worker);
-	platform.MutexUnlock(this->globalSymbolLock);
+	
 
 	uint32_t current_workerid = lastestTaskId++;
 	worker->currentWorkerId = current_workerid;
@@ -334,27 +331,44 @@ VariableValue VM::InvokeCallbackWithTempWorker(VMWorker* worker,VariableValue& f
 	context.id = current_workerid;
 	context.status = TaskContext::RUNNING;
 	context.worker = worker;
-	tasks[current_workerid] = context; //注册到VM
+	//加锁
+	platform.MutexLock(currentGC->GCWorkersVecLock);
+
+	currentGC->IgnoreWorkerCount_Inc(); //增加忽略计数器，忽略此worker的安全点需求
+	worker->keepAlive = true;
+	this->workers.push_back(worker);
+	//tasks[current_workerid] = context; //注册到VM
+
+	platform.MutexUnlock(currentGC->GCWorkersVecLock);
+
+
 
 	auto res = worker->Init(code->funcImpl.local_func, args, &env);
 
-	tasks.erase(current_workerid); //销毁任务表的对象
+	//回到原生需要加保护位，避免被GC干掉
+	if (res.varType == ValueType::REF) {
+		res.content.ref->protectStatus = VMObject::PROTECTED;
+		//currentGC->SetObjectProtect(res.content.ref, true);
+	}
 
-	platform.MutexLock(this->globalSymbolLock); //手动清除插入的worker
+	platform.MutexLock(currentGC->GCWorkersVecLock); //手动清除插入的worker
 	for (auto it = workers.begin(); it != workers.end(); it++) {
 		if (*it == worker) {
 			workers.erase(it);
 			break;
 		}
 	}
-	platform.MutexUnlock(this->globalSymbolLock);
+	worker->keepAlive = false;
+	currentGC->IgnoreWorkerCount_Dec(); //减少忽略计数器
+	platform.MutexUnlock(currentGC->GCWorkersVecLock);
+
+	
 
 	return res;
 }
 
 VariableValue VM::InvokeCallback(VariableValue& function, std::vector<VariableValue>& args,VMObject* thisValue)
 {
-	VMWorker* worker = (VMWorker*)platform.MemoryAlloc(sizeof(VMWorker));
-	new (worker) VMWorker(this);
-	return InvokeCallbackWithTempWorker(worker, function, args, thisValue);
+	VMWorker worker(this);
+	return InvokeCallbackWithTempWorker(&worker, function, args, thisValue);
 }
