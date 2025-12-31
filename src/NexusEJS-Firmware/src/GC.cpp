@@ -9,7 +9,8 @@
 #include "GC.h"
 
 
-#define LESS_MEMORY_TRIG_COLLECT 0.2f  //达到GC触发阈值的内存
+#define LESS_MEMORY_TRIG_COLLECT 0.25f  //达到GC触发阈值的内存
+#define EMERGENCY_MEMORY_TRIG_COLLECT 0.10f //强制触发GC阈值，无视触发时间，设置为0表示禁用
 #define AUTO_GC_MIN_DELAY_MS 3000 //自动GC最小间隔
 #define GC_MAX_WAIT_STW_TIME 500
 
@@ -150,16 +151,26 @@ VMObject* GC::Internal_NewObject(ValueType::IValueType type) {
 	//检测剩余内存，是否需要GC
 	float freeMemoryPercent = platform.MemoryFreePercent();
 	if (freeMemoryPercent < LESS_MEMORY_TRIG_COLLECT) {
-		uint32_t currentTickTime = platform.TickCount32();
-		uint32_t duration = currentTickTime - prevGCTime;
-		//判断最近一次GC时间到现在间隔是否超过阈值
-		if (duration > AUTO_GC_MIN_DELAY_MS) {
-			//printf("run gc because %.2f free\n", freeMemoryPercent * 100);
+		//内存太小了，不考虑防抖了直接强制触发
+		if (freeMemoryPercent <= EMERGENCY_MEMORY_TRIG_COLLECT) {
 			GC_Collect();
+		}
+		else {
+			uint32_t currentTickTime = platform.TickCount32();
+			uint32_t duration = currentTickTime - prevGCTime;
+			//判断最近一次GC时间到现在间隔是否超过阈值
+			if (duration > AUTO_GC_MIN_DELAY_MS) {
+				//printf("run gc because %.2f free\n", freeMemoryPercent * 100);
+				GC_Collect();
+			}
 		}
 	}
 
 	VMObject* alloc = (VMObject*)platform.MemoryAlloc(sizeof(VMObject));
+	if (!alloc) {
+		GC_Collect(); //无法分配内存直接强制GC尝试补救然后再次分配
+		alloc = (VMObject*)platform.MemoryAlloc(sizeof(VMObject));
+	}
 	new (alloc) VMObject(type); //调用构造函数
 	platform.MutexLock(GCObjectSetLock);
 	allObjects.insert(alloc);
@@ -508,6 +519,7 @@ void GC::Internal_GC_Collect() {
 		}
 	}
 
+	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);
 	/*
 
 	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);

@@ -406,7 +406,7 @@ void ESP32_SystemApi_Init(VM* VMInstance) {
         if (args.size() > 0) {
           uint32_t delayTime = (uint32_t)args[0].content.number;
           currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Inc();
-          delay(delayTime);
+          vTaskDelay(delayTime / portTICK_PERIOD_MS);
           currentWorker->VMInstance->currentGC->IgnoreWorkerCount_Dec();
         }
 

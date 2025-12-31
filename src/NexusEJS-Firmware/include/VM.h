@@ -2,7 +2,7 @@
 
 #define VM_VERSION_NUMBER 4
 
-#define VM_VERSION_STR "V1.4.0"
+#define VM_VERSION_STR "V1.4.1"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
