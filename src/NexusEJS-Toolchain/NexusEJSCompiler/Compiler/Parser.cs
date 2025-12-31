@@ -244,7 +244,14 @@ namespace ScriptRuntime.Core
             else if (val.raw == "return")
             {
                 var retnAST = new ASTNode(ASTNode.ASTNodeType.ReturnStatement, string.Empty,val.line);
-                retnAST.Childrens.Add(ProcessOperation(PowerToOperators.Count - 1));
+                if (PeekToken().tokenType != TokenType.EOF)
+                {
+                    retnAST.Childrens.Add(ProcessOperation(PowerToOperators.Count - 1));
+                }
+                else
+                {
+                    retnAST.Childrens.Add(new ASTNode(ASTNode.ASTNodeType.Identifier, "null", val.line));
+                }
                 return retnAST;
             }
             else if(val.raw == "var")
@@ -736,7 +743,7 @@ namespace ScriptRuntime.Core
                         ast.NodeType != ASTNode.ASTNodeType.FunctionDefinition)
                     {
                         var tok = PeekToken();
-                        throw new SyntaxException("错误，未在语句结尾找到 ;   ", PeekToken());
+                        //throw new SyntaxException("错误，未在语句结尾找到 ;   ", PeekToken());
                     }
                 }
                 ret.Childrens.Add(ast);
