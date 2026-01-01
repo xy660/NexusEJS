@@ -6,11 +6,6 @@ on:
       version:
         description: '发布版本号'
         required: true
-        
-  push:
-    branches: [main, master]
-  pull_request:
-    branches: [main, master]
 
 jobs:
   build-tools-linux:
