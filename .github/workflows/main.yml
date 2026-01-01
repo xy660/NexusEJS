@@ -9,6 +9,88 @@ on:
 
 jobs:
 
+  build-tools-linux:
+    name: 构建工具链 (Linux)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 设置 .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: 编译所有项目
+      run: |
+        cd src/NexusEJS-Toolchain
+        dotnet build --configuration Release
+        
+    - name: 发布为单文件 (Linux)
+      run: |
+        cd src/NexusEJS-Toolchain
+        
+        # 发布三个工具
+        dotnet publish NexusEJSCompiler/nejsc.csproj -c Release -r linux-x64
+        dotnet publish nejsdbg/nejsdbg.csproj -c Release -r linux-x64
+        dotnet publish offset2line/offset2line.csproj -c Release -r linux-x64
+        
+    - name: 创建 Linux 工具链包
+      run: |
+        cd src/NexusEJS-Toolchain
+        mkdir -p tools-linux
+        cp NexusEJSCompiler/bin/Release/net8.0/linux-x64/publish/nejsc tools-linux/
+        cp nejsdbg/bin/Release/net8.0/linux-x64/publish/nejsdbg tools-linux/
+        cp offset2line/bin/Release/net8.0/linux-x64/publish/offset2line tools-linux/
+        chmod +x tools-linux/*
+        
+    - name: 上传 Linux 工具链
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-linux
+        path: src/NexusEJS-Toolchain/tools-linux/
+
+  build-tools-windows:
+    name: 构建工具链 (Windows)
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 设置 .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: 编译所有项目
+      run: |
+        cd src/NexusEJS-Toolchain
+        dotnet build --configuration Release
+        
+    - name: 发布为单文件 (Windows)
+      run: |
+        cd src/NexusEJS-Toolchain
+        
+        # 发布三个工具
+        dotnet publish NexusEJSCompiler/nejsc.csproj -c Release -r win-x64
+        dotnet publish nejsdbg/nejsdbg.csproj -c Release -r win-x64
+        dotnet publish offset2line/offset2line.csproj -c Release -r win-x64
+        
+    - name: 创建 Windows 工具链包
+      run: |
+        cd src/NexusEJS-Toolchain
+        mkdir tools-windows
+        copy NexusEJSCompiler\bin\Release\net8.0\win-x64\publish\nejsc.exe tools-windows\
+        copy nejsdbg\bin\Release\net8.0\win-x64\publish\nejsdbg.exe tools-windows\
+        copy offset2line\bin\Release\net8.0\win-x64\publish\offset2line.exe tools-windows\
+        
+    - name: 上传 Windows 工具链
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-windows
+        path: src/NexusEJS-Toolchain/tools-windows/
+
+
   build-firmware:
     name: 构建固件
     runs-on: ubuntu-latest
@@ -66,8 +148,3 @@ jobs:
         name: firmware
         path: src/NexusEJS-Firmware/firmware-output/
         
-    - name: 上传固件
-      uses: actions/upload-artifact@v4
-      with:
-        name: firmware
-        path: src/NexusEJS-Firmware/firmware-output/
