@@ -26,7 +26,7 @@ jobs:
         
     - name: 发布为单文件 (Linux)
       run: |
-        cd src/NexusEJS-Toolware
+        cd src/NexusEJS-Toolchain
         
         # 发布三个工具
         dotnet publish NexusEJSCompiler/nejsc.csproj -c Release -r linux-x64
