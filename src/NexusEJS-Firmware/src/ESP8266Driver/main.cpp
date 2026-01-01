@@ -17,7 +17,7 @@
 
 
 
-#include "ESP8266Driver/ESP8266Driver.h"
+#include "ESP8266Driver/Esp8266Driver.h"
 
 
 void CreatePWMObject(){
@@ -43,10 +43,10 @@ void setup()
 
     Serial.println("platform inited");
 
-    RegisterSystemFunc(L"println", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
+    RegisterSystemFunc("println", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
     {
     Serial.print("print=>");
-    Serial.println(wstring_to_string(args[0].ToString()).c_str());
+    Serial.println(args[0].ToString().c_str());
     //wprintf(L"傻逼");
     //std::wcout << args[0].ToString() << std::endl;
     VariableValue ret;
@@ -55,7 +55,7 @@ void setup()
     return ret; 
 });
 
-    RegisterSystemFunc(L"delay", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
+    RegisterSystemFunc("delay", 1, [](std::vector<VariableValue> &args, VMObject *thisValue, VMWorker *currentWorker) -> VariableValue
     {
     
     delay((uint32_t)args[0].content.number);
@@ -63,7 +63,7 @@ void setup()
     return VariableValue(); 
     });
     
-    RegisterSystemFunc(L"gc", 0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+    RegisterSystemFunc("gc", 0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
     
     VariableValue ret;
     Serial.printf("memory:%.1f %\n",(1.0-(float)ESP.getFreeHeap()/81920)*100);
@@ -91,18 +91,17 @@ void setup()
     Serial.println("loaded funcs");
 
     for(auto& func : vm.globalSymbols){
-        Serial.println(wstring_to_string(func.first).c_str());
+        Serial.println(func.first.c_str());
     }
 
-    std::atomic<int> atom;
 
-    std::wstring name = L"main_entry";
+    std::string name = "main_entry";
     uint32_t start = millis();
     auto ret = vm.InitAndCallEntry(name,packageId);
 
     Serial.printf("time => %d\n",millis() - start);
     Serial.print("return => ");
-    Serial.printf("%s\n",wstring_to_string(ret.ToString()).c_str());
+    Serial.printf("%s\n",ret.ToString().c_str());
 
     while(true){
         delay(100);
