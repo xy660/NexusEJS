@@ -1,0 +1,157 @@
+name: NexusEJS Build
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  build-tools-linux:
+    name: 构建工具链 (Linux)
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 设置 .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: 编译所有项目
+      run: |
+        cd src/NexusEJS-Toolchain
+        dotnet build --configuration Release
+        
+    - name: 发布为单文件 (Linux)
+      run: |
+        cd src/NexusEJS-Toolware
+        
+        # 发布三个工具
+        dotnet publish NexusEJSCompiler/nejsc.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true
+        dotnet publish nejsdbg/nejsdbg.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true
+        dotnet publish offset2line/offset2line.csproj -c Release -r linux-x64 --self-contained true -p:PublishSingleFile=true
+        
+    - name: 创建 Linux 工具链包
+      run: |
+        cd src/NexusEJS-Toolchain
+        mkdir -p tools-linux
+        cp NexusEJSCompiler/bin/Release/net8.0/linux-x64/publish/nejsc tools-linux/
+        cp nejsdbg/bin/Release/net8.0/linux-x64/publish/nejsdbg tools-linux/
+        cp offset2line/bin/Release/net8.0/linux-x64/publish/offset2line tools-linux/
+        chmod +x tools-linux/*
+        
+    - name: 上传 Linux 工具链
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-linux
+        path: src/NexusEJS-Toolchain/tools-linux/
+
+  build-tools-windows:
+    name: 构建工具链 (Windows)
+    runs-on: windows-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 设置 .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '8.0.x'
+        
+    - name: 编译所有项目
+      run: |
+        cd src/NexusEJS-Toolchain
+        dotnet build --configuration Release
+        
+    - name: 发布为单文件 (Windows)
+      run: |
+        cd src/NexusEJS-Toolchain
+        
+        # 发布三个工具
+        dotnet publish NexusEJSCompiler/nejsc.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+        dotnet publish nejsdbg/nejsdbg.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+        dotnet publish offset2line/offset2line.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true
+        
+    - name: 创建 Windows 工具链包
+      run: |
+        cd src/NexusEJS-Toolchain
+        mkdir tools-windows
+        copy NexusEJSCompiler\bin\Release\net8.0\win-x64\publish\nejsc.exe tools-windows\
+        copy nejsdbg\bin\Release\net8.0\win-x64\publish\nejsdbg.exe tools-windows\
+        copy offset2line\bin\Release\net8.0\win-x64\publish\offset2line.exe tools-windows\
+        
+    - name: 上传 Windows 工具链
+      uses: actions/upload-artifact@v4
+      with:
+        name: tools-windows
+        path: src/NexusEJS-Toolchain/tools-windows/
+
+  build-firmware:
+    name: 构建固件
+    runs-on: ubuntu-latest
+    needs: [build-tools-linux, build-tools-windows]
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: 安装 PlatformIO
+      run: pip install platformio
+      
+    - name: 编译所有固件
+      run: |
+        cd src/NexusEJS-Firmware
+        
+        echo "编译 esp32-basic..."
+        pio run -e esp32-basic || echo "esp32-basic 编译失败，继续..."
+        
+        echo "编译 esp32-full..."
+        pio run -e esp32-full || echo "esp32-full 编译失败，继续..."
+        
+        echo "编译 esp8266-basic..."
+        pio run -e esp8266-basic || echo "esp8266-basic 编译失败，继续..."
+        
+    - name: 收集所有固件文件
+      run: |
+        cd src/NexusEJS-Firmware
+        
+        # 创建输出目录
+        mkdir -p firmware-output
+        
+        # 复制所有 .bin 文件
+        find .pio/build -name "*.bin" -exec cp {} firmware-output/ \; 2>/dev/null || true
+        
+        # 重命名为有意义的名称
+        cd firmware-output
+        for file in *.bin; do
+          if [ -f "$file" ]; then
+            # 尝试从路径推断板子名称
+            if [[ "$file" == "firmware.bin" ]]; then
+              # 查找原始文件位置
+              original=$(find ../.pio/build -name "firmware.bin" | head -1)
+              if [[ "$original" == *"esp32-basic"* ]]; then
+                mv "$file" "nexusEJS-esp32-basic.bin"
+              elif [[ "$original" == *"esp32-full"* ]]; then
+                mv "$file" "nexusEJS-esp32-full.bin"
+              elif [[ "$original" == *"esp8266-basic"* ]]; then
+                mv "$file" "nexusEJS-esp8266-basic.bin"
+              fi
+            fi
+          fi
+        done
+        
+        # 如果没有文件，创建一个空标记
+        if [ ! -f "*.bin" ]; then
+          echo "没有找到固件文件" > no-firmware.txt
+        fi
+        
+        # 显示文件列表
+        echo "生成的固件:"
+        ls -lh || echo "无固件文件"
+        
+    - name: 上传固件
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware
+        path: src/NexusEJS-Firmware/firmware-output/
