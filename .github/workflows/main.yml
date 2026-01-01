@@ -12,7 +12,6 @@ jobs:
   build-firmware:
     name: 构建固件
     runs-on: ubuntu-latest
-    #needs: [build-tools-linux, build-tools-windows]
     
     steps:
     - uses: actions/checkout@v4
@@ -25,44 +24,47 @@ jobs:
         cd src/NexusEJS-Firmware
         pio run
         
-    - name: 收集所有固件文件
+    - name: 递归查找并复制固件
       run: |
         cd src/NexusEJS-Firmware
-        
-        # 创建输出目录
         mkdir -p firmware-output
         
-        # 递归查找所有 .bin 文件
-        echo "=== 递归查找 .bin 文件 ==="
-        find . -type f -name "*.bin" | while read file; do
-          echo "找到: $file"
-          # 复制到输出目录，保持相对路径结构
-          rel_path="${file#./}"
-          target_name="nexusEJS-$(basename "$rel_path")"
-          cp "$file" "firmware-output/$target_name"
-        done
+        echo "=== 查找所有固件文件 ==="
         
-        # 如果是 firmware.bin，尝试用目录名重命名
-        cd firmware-output
-        for file in *.bin; do
-          if [[ "$file" == "firmware.bin" ]]; then
-            # 查找这个文件的所有来源路径
-            source_files=$(find ../. -name "firmware.bin" -type f)
-            for src in $source_files; do
-              # 提取父目录名
-              dir_name=$(basename $(dirname "$src"))
-              if [[ "$dir_name" =~ ^(esp32-basic|esp32-full|esp8266-basic|.*)$ ]]; then
-                new_name="nexusEJS-$dir_name.bin"
-                echo "重命名: $file -> $new_name"
-                mv "$file" "$new_name"
-                break
-              fi
-            done
-          fi
+        # 使用数组保存找到的文件
+        declare -a found_files
+        while IFS= read -r -d $'\0' file; do
+          found_files+=("$file")
+        done < <(find . -name "firmware.bin" -type f -print0)
+        
+        echo "找到 ${#found_files[@]} 个固件文件"
+        
+        # 处理每个文件
+        for file in "${found_files[@]}"; do
+          echo "处理: $file"
+          
+          # 提取环境名（父目录名）
+          dir_path=$(dirname "$file")
+          env_name=$(basename "$dir_path")
+          
+          # 生成新文件名
+          new_name="nexusEJS-$env_name.bin"
+          
+          echo "  环境: $env_name"
+          echo "  新文件名: $new_name"
+          
+          # 复制文件
+          cp "$file" "firmware-output/$new_name"
         done
         
         echo "=== 生成的固件 ==="
-        find . -type f -name "*.bin"
+        ls -la firmware-output/
+        
+    - name: 上传固件
+      uses: actions/upload-artifact@v4
+      with:
+        name: firmware
+        path: src/NexusEJS-Firmware/firmware-output/
         
     - name: 上传固件
       uses: actions/upload-artifact@v4
