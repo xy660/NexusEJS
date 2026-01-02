@@ -14,6 +14,8 @@ An embedded JavaScript engine that supports native RTOS multitasking and automat
 
 NexusEJS aims to lower the development barrier for IoT, enabling more people to participate in IoT device development. It uses a familiar JavaScript-style syntax, optimized and enhanced for embedded systems.
 
+**NexusEJS aims to be usable out of the box, without the need to repeatedly handle a large number of C/C++ binding requirements.**
+
 You can turn on an LED on an **ESP32** or any supported SoC with just one line of code:
 
 ```javascript
@@ -87,6 +89,8 @@ Thank you for helping improve NexusEJS!
 
 NexusEJS致力于降低IoT的开发门槛，让更多人也能参与IoT设备的开发。NexusEJS使用熟悉的JavaScript风格语法，并针对嵌入式进行了优化和功能改进。
 
+**NexusEJS目标是做到开箱即用，无需重复处理大量的C/C++绑定需求**
+
 您只需要一行代码即可点亮`ESP32`或任何具备支持驱动的开发SoC的led灯：
 
 ```javascript
@@ -102,7 +106,7 @@ NexusEJS追求确定性和透明性，因此我们的VM设计了：
 - 平台无关且易于移植的VM核心
 - C/C++原生绑定
 
-在ESP32上的测试中，单任务，无频繁对象创建的情况下：
+在ESP32上的测试中，单任务，纯数值计算任务的情况下：
 - 平均内存占用约`55KB`
 - 裁剪后的固件大小约`0.5MB`
 - 无GC暂停
