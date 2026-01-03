@@ -170,6 +170,10 @@ VMObject* GC::Internal_NewObject(ValueType::IValueType type) {
 	if (!alloc) {
 		GC_Collect(); //无法分配内存直接强制GC尝试补救然后再次分配
 		alloc = (VMObject*)platform.MemoryAlloc(sizeof(VMObject));
+		if (!alloc) {
+			//没救了，崩溃重启
+			abort();
+		}
 	}
 	new (alloc) VMObject(type); //调用构造函数
 	platform.MutexLock(GCObjectSetLock);
@@ -451,9 +455,12 @@ void GC::Internal_GC_Collect() {
 						dfsStack.push(vmo); //标记他所有引用的对象，保证存活避免垂悬指针
 						DFS_TravelObject(dfsStack, defaultMarkProc, bindingVM);
 					}
+					//标记完了避免下面重复标记
+					continue;
 				}
 			}
-			else if (vmo->protectStatus == VMObject::PROTECTED) { //标记受保护的
+
+			if (vmo->protectStatus == VMObject::PROTECTED) { //标记受保护的
 				dfsStack.push(vmo);
 				DFS_TravelObject(dfsStack, [](VMObject* vmo) -> bool {
 					if (vmo->marked) return true;
@@ -519,7 +526,6 @@ void GC::Internal_GC_Collect() {
 		}
 	}
 
-	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);
 	/*
 
 	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);

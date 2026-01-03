@@ -195,7 +195,7 @@ VariableValue VMWorker::Init(ByteCodeFunction& entry_func,std::vector<VariableVa
 	return VMWorkerTask();
 }
 void VMWorker::ThrowError(std::string messageString) {
-	auto messageObject = VMInstance->currentGC->Internal_NewStringObject(messageString);
+	auto messageObject = VMInstance->currentGC->GC_NewStringObject(messageString);
 	VariableValue message;
 	message.varType = ValueType::REF;
 	message.content.ref = messageObject;
@@ -250,7 +250,7 @@ void VMWorker::ThrowError(VariableValue& messageString)
 
 #endif
 
-	VMObject* errorObject = VMInstance->currentGC->Internal_NewObject(ValueType::OBJECT);
+	VMObject* errorObject = VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
 	errorObject->implement.objectImpl["message"] = messageString;
 
 	std::ostringstream stream;
@@ -271,8 +271,9 @@ void VMWorker::ThrowError(VariableValue& messageString)
 	}
 
 	errorObject->implement.objectImpl["stackTrace"] = CreateReferenceVariable(
-		VMInstance->currentGC->Internal_NewStringObject(stream.str())
-	);
+		VMInstance->currentGC->GC_NewStringObject(stream.str()));
+
+	errorObject->protectStatus = VMObject::NOT_PROTECTED;
 
 	for (int i = callFrames.size() - 1; i >= 0; i--) {
 		auto& fnFrame = callFrames[i];
