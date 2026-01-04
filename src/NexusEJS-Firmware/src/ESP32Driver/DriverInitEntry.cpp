@@ -105,8 +105,9 @@ void ESP32_Platform_Init() {
   };
 
   platform.MemoryFreePercent = []() -> float {
-    return (float)esp_get_free_heap_size() /
+    float memoryFree = (float)esp_get_free_heap_size() /
            (float)heap_caps_get_total_size(MALLOC_CAP_8BIT);
+    return memoryFree;
   };
   printf("FS.begin:%d\n", SPIFFS.begin(true));
   platform.FileExist = [](std::string& fileName) -> bool {

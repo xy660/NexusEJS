@@ -342,7 +342,7 @@ VariableValue VM::InvokeCallbackWithTempWorker(VMWorker* worker,VariableValue& f
 	platform.MutexUnlock(currentGC->GCWorkersVecLock);
 
 
-
+	
 	auto res = worker->Init(code->funcImpl.local_func, args, &env);
 
 	//回到原生需要加保护位，避免被GC干掉

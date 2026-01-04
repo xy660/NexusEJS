@@ -445,7 +445,8 @@ void GC::Internal_GC_Collect() {
 	//开始标记所有不可达但携带finalize方法的对象引用图，此时认为他还是有效对象
 	for (VMObject* vmo : allObjects) {
 		if (!vmo->marked) {
-			if (vmo->type == ValueType::OBJECT) {
+			//fix: 修复误杀同时携带保护标志和自定义终结器的对象
+			if (vmo->type == ValueType::OBJECT && vmo->protectStatus != VMObject::PROTECTED) {
 				auto findFinalize = vmo->implement.objectImpl.find("finalize");
 				if (findFinalize != vmo->implement.objectImpl.end()) {
 					//这里使用getContentType判断是否是函数因为可能存在闭包的对象实现函数
@@ -525,7 +526,7 @@ void GC::Internal_GC_Collect() {
 			it = bindingVM->UnloadPackageWithIterator(it);
 		}
 	}
-
+	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);
 	/*
 
 	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);

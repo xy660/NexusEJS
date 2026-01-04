@@ -374,17 +374,17 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 	}
 	*/
 
-	VMObject* closureFunction = worker->VMInstance->currentGC->Internal_NewObject(ValueType::FUNCTION);
+	VMObject* closureFunction = worker->VMInstance->currentGC->GC_NewObject(ValueType::FUNCTION);
+	closureFunction->implement.closFuncImpl.sfn = sfn; //fix: 立即补充参数，避免下次触发GC被GC解空指针
 	if (closureContainer.size() > 0) {
-		VMObject* closureObject = worker->VMInstance->currentGC->Internal_NewObject(ValueType::OBJECT);
+		VMObject* closureObject = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
 		//拷贝自己到闭包环境确保递归调用有效
 		closureContainer[sfn->funcImpl.local_func.funcName] = CreateReferenceVariable(closureFunction); 
 		closureObject->implement.objectImpl = closureContainer; //拷贝过去
 		closureFunction->implement.closFuncImpl.closure = closureObject;
 	}
 	//propObject懒加载，必要的时候才分配节省内存
-	closureFunction->implement.closFuncImpl.sfn = sfn;
-
+	closureFunction->protectStatus = VMObject::NOT_PROTECTED; //等待GC清除标记
 	return CreateReferenceVariable(closureFunction);
 }
 
@@ -889,9 +889,9 @@ VariableValue VMWorker::VMWorkerTask() {
 				arguments.push_back(arg);
 			}
 
-
-			//弹出函数对象和参数
+			//弹出函数对象&参数
 			currentFn->virtualStack.resize(currentFn->virtualStack.size() - op_argCount - 1);
+
 
 			if (funcInfo->type == ScriptFunction::Local) {
 				currentScope->ep += OpCode::instructionSize[op]; //接下来要改变栈帧了，代替循环尾部进行不进
@@ -908,8 +908,9 @@ VariableValue VMWorker::VMWorkerTask() {
 				if (!needResetLoop) {
 					if (funcResult.varType == ValueType::REF) {
 						funcResult.content.ref->protectStatus = VMObject::NOT_PROTECTED;
-						//currentGC->SetObjectProtect(funcResult.content.ref,false);
 					}
+
+					//压入返回值
 					currentFn->virtualStack.push_back(funcResult);
 				}
 			}

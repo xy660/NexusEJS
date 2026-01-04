@@ -195,6 +195,7 @@ void WebServerObjectTempInit() {
       2,
       [](std::vector<VariableValue>& args, VMObject* thisValue,
          VMWorker* currentWorker) -> VariableValue {
+        printf("get start\n");
         if (args[0].getContentType() != ValueType::STRING) {
           currentWorker->ThrowError("url must be a string");
           return VariableValue();
@@ -215,7 +216,9 @@ void WebServerObjectTempInit() {
         uint32_t nativeId =
             (uint32_t)thisValue->implement.objectImpl["_id"].content.number;
         auto pServer = webserverInstances[nativeId].get();
+
         VM* currentVM = currentWorker->VMInstance;
+        
         // 实现回调层
         pServer->on(
             args[0].content.ref->implement.stringImpl.c_str(),
@@ -232,8 +235,6 @@ void WebServerObjectTempInit() {
               for (int i = 0; i < pServer->args(); i++) {
                 std::string argName = pServer->argName(i).c_str();
                 std::string param = pServer->arg(i).c_str();
-                // paramObjects.emplace_back(ValueType::STRING);
-                // paramObjects.back().implement.stringImpl = w_param;
                 VMObject* vmo = new VMObject(
                     ValueType::
                         STRING);  // 创建临时的字符串对象，回调返回后需要遍历delete
@@ -242,13 +243,11 @@ void WebServerObjectTempInit() {
                 aobjmap[argName] = CreateReferenceVariable(vmo);
               }
               // 在新的执行环境执行回调
-              // VMWorker worker(currentVM);
 
               std::vector<VariableValue> argument;
               argument.push_back(CreateReferenceVariable(&argObject));
-              // auto result =
-              // worker->Init(callback->funcImpl.local_func,&argument);
               // //当前线程运行解释器循环
+              
               auto result =
                   currentVM->InvokeCallback(_callback, argument, NULL);
               // 发送返回值作为response
@@ -260,6 +259,7 @@ void WebServerObjectTempInit() {
                 delete paramobj;
               }
             });
+            printf("get end\n");
         return VariableValue();
       });
   WebServerObjectTemplate["mapPost"] = VM::CreateSystemFunc(
@@ -477,7 +477,7 @@ void ESP32_HTTPApi_Init(VM* VMInstance) {
         objContainer["_cb"] = CreateReferenceVariable(
             currentWorker->VMInstance->currentGC->GC_NewObject(
                 ValueType::ARRAY));
-
+              
         return CreateReferenceVariable(serverObject);
       });
 #endif
