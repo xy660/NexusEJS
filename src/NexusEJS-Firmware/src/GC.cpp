@@ -69,10 +69,10 @@ void GC::StopTheWorld() {
 	platform.MutexLock(GCSTWCounterLock);
 	STW_ArrivedThreadCount++; //当前触发GC的线程被认为已经进入安全点，自增计数器
 	platform.MutexUnlock(GCSTWCounterLock);
-	
+
 	platform.MutexLock(GCBlockEventLock); //开启安全点屏障阻塞Worker线程暂停世界
 	GCRequired = true; //发布信号提醒其他线程需要GC
-	
+
 
 	//等待所有活的Worker线程进入安全点（不包括进入原生的线程）
 	uint32_t aliveWorkerCount = 0;
@@ -186,7 +186,7 @@ VMObject* GC::Internal_NewObject(ValueType::IValueType type) {
 //外部调用GC分配的对象带保护，外部程序需要手动清除保护位否则会导致内存泄露
 VMObject* GC::GC_NewObject(ValueType::IValueType type, VMObject::VMObjectProtectStatus status) {
 	VMObject* vmo = Internal_NewObject(type);
-	vmo->protectStatus = status; 
+	vmo->protectStatus = status;
 	return vmo;
 }
 
@@ -197,7 +197,7 @@ VMObject* GC::Internal_NewStringObject(std::string str) {
 }
 
 VMObject* GC::GC_NewStringObject(std::string str, VMObject::VMObjectProtectStatus status) {
-	VMObject* vmo = GC_NewObject(ValueType::STRING,status);
+	VMObject* vmo = GC_NewObject(ValueType::STRING, status);
 	vmo->implement.stringImpl = str;
 	return vmo;
 }
@@ -217,68 +217,9 @@ void GC::GC_FreeObject(VMObject* vm_object) {
 }
 
 
-/*
-//深度优先遍历清除保护位
-void DFS_ClearObjectProtect(std::stack<VMObject*>& dfsStack, bool Value) {
-	while (!dfsStack.empty()) {
-		auto obj = dfsStack.top();
-		dfsStack.pop();
-
-		if (obj->protectedObject != Value) { //对象之间的引用是一个有环图，要做visited处理
-			continue;
-		}
-
-		obj->protectedObject = Value;
-
-		switch (obj->type)
-		{
-
-		case ValueType::ARRAY:
-		{
-			auto& vec = obj->implement.arrayImpl;
-			for (auto& variable : vec) {
-				VariableValue* current = variable.getRawVariable();
-				if (current->varType == ValueType::REF) {
-					dfsStack.push(current->content.ref);
-				}
-			}
-			break;
-		}
-		case ValueType::OBJECT:
-		{
-			auto& objmap = obj->implement.objectImpl;
-			for (auto& pair : objmap) {
-				VariableValue* current = pair.second.getRawVariable();
-				if (current->varType == ValueType::REF) {
-					dfsStack.push(current->content.ref);
-				}
-			}
-			break;
-		}
-		case ValueType::FUNCTION:
-		{
-			//检查内置闭包对象和prop内联对象
-			auto& funcImpl = obj->implement.closFuncImpl;
-			//直接遍历这两个内置对象的Value段压栈
-			if (funcImpl.closure) dfsStack.push(funcImpl.closure);
-			if (funcImpl.propObject) dfsStack.push(funcImpl.propObject);
-			break;
-		}
-		}
-	}
-}
-
-void GC::SetObjectProtect(VMObject* vmo, bool Value) {
-	std::stack<VMObject*> stack;
-	stack.push(vmo);
-	DFS_ClearObjectProtect(stack, Value);
-}
-
-*/
-
 //深度优先遍历对象引用图标记存活对象
 template<typename Func>
-void DFS_TravelObject(std::stack<VMObject*>& dfsStack,Func procObject, VM* VMInstance) {
+void DFS_TravelObject(std::stack<VMObject*>& dfsStack, Func procObject, VM* VMInstance) {
 	while (!dfsStack.empty()) {
 		auto obj = dfsStack.top();
 		dfsStack.pop();
@@ -286,16 +227,6 @@ void DFS_TravelObject(std::stack<VMObject*>& dfsStack,Func procObject, VM* VMIns
 		if (procObject(obj)) {
 			continue;
 		}
-
-		/*
-		if (obj->marked == mark && 
-			(obj->protectStatus == VMObject::PROTECTED) == clearProtect) { //对象之间的引用是一个有环图，要做visited处理
-			continue;
-		}
-
-		if(mark) obj->marked = true;
-		if(clearProtect) obj->protectStatus = VMObject::NONE; //可达的就取消保护
-		*/
 
 		if (obj->type == ValueType::ARRAY) { //如果是数组就遍历数组引用标记
 			//auto& vec = std::get<std::vector<VariableValue>>(obj->implement);
@@ -321,8 +252,8 @@ void DFS_TravelObject(std::stack<VMObject*>& dfsStack,Func procObject, VM* VMIns
 			//检查内置闭包对象和prop内联对象
 			auto& funcImpl = obj->implement.closFuncImpl;
 			//直接遍历这两个内置对象的Value段压栈
-			if(funcImpl.closure) dfsStack.push(funcImpl.closure);
-			if(funcImpl.propObject) dfsStack.push(funcImpl.propObject);
+			if (funcImpl.closure) dfsStack.push(funcImpl.closure);
+			if (funcImpl.propObject) dfsStack.push(funcImpl.propObject);
 
 			//标记存活的包(这里确定携带闭包的对象一定是字节码函数)
 			uint16_t pckId = funcImpl.sfn->funcImpl.local_func.packageId;
@@ -395,7 +326,7 @@ void GC::Internal_GC_Collect() {
 					dfsStack.push(variable_ref.content.ref);
 				}
 				else if (variable_ref.varType == ValueType::FUNCTION &&
-						variable_ref.content.function->type == ScriptFunction::Local) {
+					variable_ref.content.function->type == ScriptFunction::Local) {
 					//标记包内字节码函数对象
 					uint16_t id = variable_ref.content.function->funcImpl.local_func.packageId;
 					bindingVM->loadedPackages[id].GCMarked = true;
@@ -472,25 +403,24 @@ void GC::Internal_GC_Collect() {
 
 					}, bindingVM);
 			}
-			else if (vmo->protectStatus == VMObject::NOT_PROTECTED) { //标记刚被摘除的root，清除所有对象
-				dfsStack.push(vmo);
-				DFS_TravelObject(dfsStack, [](VMObject* vmo) -> bool {
+		}
+		//fix: NOT_PROTECTED标记表示对象应递归摘除保护，这个不管是否marked都要做
+		if (vmo->protectStatus == VMObject::NOT_PROTECTED) { //标记刚被摘除的root，清除所有对象
+			dfsStack.push(vmo);
+			DFS_TravelObject(dfsStack, [](VMObject* vmo) -> bool {
 
-					if (vmo->protectStatus == VMObject::NONE) return true;
+				if (vmo->protectStatus == VMObject::NONE) return true;
 
-					vmo->protectStatus = VMObject::NONE;
+				vmo->protectStatus = VMObject::NONE;
 
-					return false;
+				return false;
 
-					}, bindingVM);
-				//不进行标记，仅清除保护
-			}
+				}, bindingVM);
+			//不进行标记，仅清除保护
 		}
 	}
 
-
 	//标记完有用的对象接下来删掉所有没用的
-
 	for (auto it = allObjects.begin(); it != allObjects.end();) {
 		VMObject* currentObject = *it;
 		if (!currentObject->marked) {
@@ -558,9 +488,9 @@ void GC::Internal_GC_Collect() {
 	//删完垃圾开始调用终结器
 
 	for (VMObject* needFinalizeObject : finalizeQueue) {
-		
+
 		//ScriptFunction* finalizeFunc = needFinalizeObject->implement.objectImpl["finalize"].content.function;
-		
+
 		auto& finalizeFuncMember = needFinalizeObject->implement.objectImpl["finalize"];
 
 		ScriptFunction* finalizeFunc;
@@ -578,7 +508,7 @@ void GC::Internal_GC_Collect() {
 			if (finalizeFunc->type == ScriptFunction::Local) {
 				//auto result = InvokeBytecodeFinalizeFunc(finalizeFunc->funcImpl.local_func, needFinalizeObject);
 				std::vector<VariableValue> args; //本身就没有参数，占位的
-				auto result = bindingVM->InvokeCallback(finalizeFuncMember, args,needFinalizeObject);
+				auto result = bindingVM->InvokeCallback(finalizeFuncMember, args, needFinalizeObject);
 				if (result.varType == ValueType::BOOL && result.content.boolean == false) {
 					allowFinalize = false;
 				}
