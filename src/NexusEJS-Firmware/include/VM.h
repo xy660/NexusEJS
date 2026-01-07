@@ -2,7 +2,7 @@
 
 #define VM_VERSION_NUMBER 4
 
-#define VM_VERSION_STR "V1.4.2"
+#define VM_VERSION_STR "V1.4.3"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
@@ -108,7 +108,8 @@ public:
 
 class TaskContext {
 public:
-	VariableValue result;
+	//VariableValue result; //暂定为冗余，后续可能删除
+	VMObject* TaskObject = NULL;
 	uint32_t id = 0;
 	uint32_t threadId = 0;
 	VMWorker* worker = NULL;

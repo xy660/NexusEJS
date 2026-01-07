@@ -3,7 +3,7 @@
 #include <cstring>
 #include <math.h>
 
-VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker);
+VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker,VariableValue& entryFunc);
 
 //系统内置符号表
 std::unordered_map<std::string, VariableValue> SystemBuildinSymbols;
@@ -73,7 +73,7 @@ void* TaskEntry(void* param) {
 	platform.MutexLock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
 
 	context = taskParam.VMInstance->tasks[taskParam.taskId]; //重新获取避免地址变化
-	context.result = res;
+	context.TaskObject->implement.objectImpl["_ret"] = res;
 	context.status = TaskContext::STOPED;
 
 	platform.MutexUnlock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
@@ -81,7 +81,7 @@ void* TaskEntry(void* param) {
 	return NULL;
 }
 
-VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker) {
+VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker,VariableValue& entryFunc) {
 	VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT,VMObject::PROTECTED);
 	vmo->implement.objectImpl["id"] = CreateNumberVariable(id);
 	vmo->implement.objectImpl["threadId"] = CreateNumberVariable(threadId);
@@ -90,6 +90,10 @@ VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* work
 	vmo->implement.objectImpl["getResult"] = TaskObj_getResultFunc;
 
 	vmo->implement.objectImpl["finalize"] = TaskObj_finalizeFunc;
+
+	//任务对象引用函数避免被回收
+	vmo->implement.objectImpl["entry"] = entryFunc;
+
 	for (auto& pair : vmo->implement.objectImpl) {
 		pair.second.readOnly = true; // 设置只读防止用户乱赋值导致内存泄漏
 	}
@@ -834,12 +838,8 @@ void SingleSystemFuncInit() {
 		});
 	//SingleSystemFunctionStore.push_back(TaskObj_waitTimeoutFunc.content.function);
 
-	TaskObj_getResultFunc = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker) -> VariableValue {
-		platform.MutexLock(worker->VMInstance->currentGC->GCWorkersVecLock);
-		uint32_t taskId = (uint32_t)thisValue->implement.objectImpl["id"].content.number;
-		auto result = worker->VMInstance->tasks[taskId].result;
-		platform.MutexUnlock(worker->VMInstance->currentGC->GCWorkersVecLock);
-		return result;
+	TaskObj_getResultFunc = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker) -> VariableValue {	
+		return thisValue->implement.objectImpl["_ret"];
 	});
 	//SingleSystemFunctionStore.push_back(TaskObj_getResultFunc.content.function);
 
@@ -914,6 +914,11 @@ void BuildinStdlib_Init()
 		//context.worker = new VMWorker(currentWorker->VMInstance);
 		context.processEntry = TaskEntry;
 		context.function = args[0];
+
+		//fix: 如果是函数对象（一般都是）那就添加保护，稍后返回的时候会被统一销毁标记
+		if (context.function.varType == ValueType::REF) {
+			context.function.content.ref->protectStatus = VMObject::PROTECTED;
+		}
 		
 		platform.MutexLock(currentWorker->VMInstance->currentGC->GCWorkersVecLock);
 		currentVM->tasks[currentTaskId] = context;
@@ -933,16 +938,20 @@ void BuildinStdlib_Init()
 			return VariableValue(); //失败返回NULLREF
 		}
 
-		context.threadId = threadId;
+		currentVM->tasks[currentTaskId].threadId = threadId;
 
-		context.status = TaskContext::RUNNING;
+		currentVM->tasks[currentTaskId].status = TaskContext::RUNNING;
 
-
-		return CreateReferenceVariable(CreateTaskControlObject(
+		VMObject* TaskControlObject = CreateTaskControlObject(
 			context.id,
 			context.threadId,
-			currentWorker
-		));
+			currentWorker,
+			args[0]
+		);
+
+		currentVM->tasks[currentTaskId].TaskObject = TaskControlObject;
+
+		return CreateReferenceVariable(TaskControlObject);
 	});
 
 	RegisterSystemFunc("mutexLock", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {

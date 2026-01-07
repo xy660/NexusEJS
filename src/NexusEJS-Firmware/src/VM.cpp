@@ -169,7 +169,7 @@ VMWorker::VMWorker(VM* current_vm) {
 }
 
 //初始化操作，加载方法字节码帧并启动解释器循环
-VariableValue VMWorker::Init(ByteCodeFunction& entry_func,std::vector<VariableValue>& args, std::unordered_map<std::string, VariableValue>* env) {
+VariableValue VMWorker::Init(ByteCodeFunction& entry_func, std::vector<VariableValue>& args, std::unordered_map<std::string, VariableValue>* env) {
 	FuncFrame frame;
 	frame.byteCode = entry_func.byteCode;
 	frame.byteCodeLength = entry_func.byteCodeLength;
@@ -318,7 +318,7 @@ uint32_t getRawExecutionPosition(ScopeFrame* scope) {
 }
 
 //传入当前函数帧和尝试创建闭包的函数，不会对系统函数和已经有闭包的函数进行任何处理
-static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMWorker* worker) {
+static VariableValue __make_closure(VariableValue& function, FuncFrame* frame, VMWorker* worker) {
 	ScriptFunction* sfn;
 	if (function.varType != ValueType::FUNCTION) {
 		return function;
@@ -337,7 +337,7 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 	auto& package = worker->VMInstance->loadedPackages[packageId];
 
 	std::unordered_map<std::string, VariableValue> closureContainer;
-	
+
 	//查找哪些局部变量需要被捕获
 	uint32_t index = 0;
 	for (auto& varbNameId : frame->localVarNames) {
@@ -379,7 +379,7 @@ static VariableValue __make_closure(VariableValue& function,FuncFrame* frame,VMW
 	if (closureContainer.size() > 0) {
 		VMObject* closureObject = worker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
 		//拷贝自己到闭包环境确保递归调用有效
-		closureContainer[sfn->funcImpl.local_func.funcName] = CreateReferenceVariable(closureFunction); 
+		closureContainer[sfn->funcImpl.local_func.funcName] = CreateReferenceVariable(closureFunction);
 		closureObject->implement.objectImpl = closureContainer; //拷贝过去
 		closureFunction->implement.closFuncImpl.closure = closureObject;
 	}
@@ -408,7 +408,7 @@ static VariableValue* __vmworker_find_variable(VMWorker& worker, std::string& na
 	*/
 	//}
 
-	
+
 	//从闭包查找（如有）
 	auto clos_find = fnFrame.functionEnvSymbols.find("_clos"); //闭包对象通过参数隐式传递
 	if (clos_find != fnFrame.functionEnvSymbols.end()) {
@@ -424,7 +424,7 @@ static VariableValue* __vmworker_find_variable(VMWorker& worker, std::string& na
 
 	//从字节码程序集查找
 	uint16_t packageId = fnFrame.functionInfo->packageId;
-	VariableValue* find_bytecodeFunction = worker.VMInstance->GetBytecodeFunctionSymbol(packageId,name);
+	VariableValue* find_bytecodeFunction = worker.VMInstance->GetBytecodeFunctionSymbol(packageId, name);
 	if (find_bytecodeFunction) {
 		return find_bytecodeFunction;
 	}
@@ -456,7 +456,7 @@ VariableValue VMWorker::VMWorkerTask() {
 	VariableValue lastestReturnValue;
 	bool hasLastestReturnValue = false; //返回值当前是否可用，每次取出都需要将其设置为false
 
-	
+
 
 	while (true) {
 
@@ -885,7 +885,7 @@ VariableValue VMWorker::VMWorkerTask() {
 					//对可能逃逸的值函数进行闭包捕获
 					arg = __make_closure(arg, currentFn, this);
 				}
-				
+
 				arguments.push_back(arg);
 			}
 
@@ -895,16 +895,16 @@ VariableValue VMWorker::VMWorkerTask() {
 
 			if (funcInfo->type == ScriptFunction::Local) {
 				currentScope->ep += OpCode::instructionSize[op]; //接下来要改变栈帧了，代替循环尾部进行不进
-				funcInfo->InvokeFunc(arguments, funcRefVal->thisValue,closureObject, this);
-				
+				funcInfo->InvokeFunc(arguments, funcRefVal->thisValue, closureObject, this);
+
 				continue;
 			}
 			else if (funcInfo->type == ScriptFunction::System) {
 				//currentGC->IgnoreWorkerCount_Inc(); //GC标记原生边界
-				auto funcResult = funcInfo->InvokeFunc(arguments, funcRefVal->thisValue,NULL, this);
+				auto funcResult = funcInfo->InvokeFunc(arguments, funcRefVal->thisValue, NULL, this);
 				//currentGC->IgnoreWorkerCount_Dec();
 				//如果原生函数未发生异常就压入返回值
-				
+
 				if (!needResetLoop) {
 					if (funcResult.varType == ValueType::REF) {
 						funcResult.content.ref->protectStatus = VMObject::NOT_PROTECTED;
@@ -1103,7 +1103,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			VariableValue* parent = currentFn->virtualStack[currentFn->virtualStack.size() - 2].getRawVariable();
 			VariableValue result;
 			ValueType::IValueType parentType = parent->getContentType();
-			restart_get_field: //类型切换复用标签
+		restart_get_field: //类型切换复用标签
 			if (parentType == ValueType::ARRAY) {
 				//Array类型返回的不是BRIDGE类型，比如内置方法/length等属性
 				//数组元素通过Array.get方法返回的BRIDGE类型VariableValue实现修改和访问
@@ -1291,7 +1291,7 @@ VM::~VM()
 	tasks.clear();
 	UnloadAllPackage();
 	currentGC->GC_Collect();
-	
+
 }
 
 VariableValue* VM::getGlobalSymbol(std::string& symbol) {

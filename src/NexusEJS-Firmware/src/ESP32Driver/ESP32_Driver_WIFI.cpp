@@ -195,7 +195,6 @@ void WebServerObjectTempInit() {
       2,
       [](std::vector<VariableValue>& args, VMObject* thisValue,
          VMWorker* currentWorker) -> VariableValue {
-        printf("get start\n");
         if (args[0].getContentType() != ValueType::STRING) {
           currentWorker->ThrowError("url must be a string");
           return VariableValue();
@@ -259,7 +258,6 @@ void WebServerObjectTempInit() {
                 delete paramobj;
               }
             });
-            printf("get end\n");
         return VariableValue();
       });
   WebServerObjectTemplate["mapPost"] = VM::CreateSystemFunc(

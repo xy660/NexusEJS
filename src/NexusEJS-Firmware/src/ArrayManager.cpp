@@ -314,6 +314,7 @@ void ArrayManager_Init() {
                 resultIndex = index;
                 return false;
             }
+
             return true;
         });
         if (resultIndex != -1) {
@@ -341,6 +342,7 @@ void ArrayManager_Init() {
                 found = true;
                 return false;
             }
+
             return true;
             });
 
@@ -367,6 +369,7 @@ void ArrayManager_Init() {
                 allMatch = false;
                 return false;
             }
+
             return true;
             });
 

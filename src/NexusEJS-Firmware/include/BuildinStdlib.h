@@ -18,7 +18,7 @@ struct ByteBufferInfo
 
 ByteBufferInfo GetByteBufferInfo(uint32_t bufid);
 
-VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker);
+//VMObject* CreateTaskControlObject(uint32_t id, uint32_t threadId, VMWorker* worker);
 
 // 初始化全局单例
 void BuildinStdlib_Init();

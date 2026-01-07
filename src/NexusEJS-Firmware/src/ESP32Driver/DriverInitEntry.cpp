@@ -538,6 +538,10 @@ void ESP32_PlatformStdlibImpl_Init(VM* VMInstance) {
   ESP32_SPI_Init(VMInstance);
 #endif
 
+#if ESP32_SERIALAPI_ENABLED
+  ESP32_Serial_Init(VMInstance);
+#endif
+
 #if ESP32_WIFI_API_ENABLED
   ESP32_WiFiPlatformApi_Init(VMInstance);
 #endif

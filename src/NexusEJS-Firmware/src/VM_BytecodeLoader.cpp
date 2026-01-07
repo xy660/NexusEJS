@@ -342,14 +342,17 @@ VariableValue VM::InvokeCallbackWithTempWorker(VMWorker* worker,VariableValue& f
 	platform.MutexUnlock(currentGC->GCWorkersVecLock);
 
 
-	
+
 	auto res = worker->Init(code->funcImpl.local_func, args, &env);
 
+	//change: 这里不再需要增加保护位，只要原生函数确保不要抵达安全点/NewObject就不会被回收
+	/*
 	//回到原生需要加保护位，避免被GC干掉
 	if (res.varType == ValueType::REF) {
 		res.content.ref->protectStatus = VMObject::PROTECTED;
 		//currentGC->SetObjectProtect(res.content.ref, true);
 	}
+	*/
 
 	platform.MutexLock(currentGC->GCWorkersVecLock); //手动清除插入的worker
 	for (auto it = workers.begin(); it != workers.end(); it++) {

@@ -23,6 +23,8 @@
 
 */
 
+#define ESP32_SERIALAPI_ENABLED 1
+
 
 #define MAX_PWM_CHANNELS 16
 #define ANALOG_READ_RESOLUTION 1024
@@ -43,6 +45,10 @@ void ESP32_I2C_Init(VM* VMInstance);
 
 #if ESP32_SPI_ENABLED
 void ESP32_SPI_Init(VM* VMInstance);
+#endif
+
+#if ESP32_SERIALAPI_ENABLED
+void ESP32_Serial_Init(VM* VMInstance);
 #endif
 
 void InitPWMChannels();
