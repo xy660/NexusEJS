@@ -24,7 +24,7 @@ Gpio.set(2, true);
 
 NexusEJS emphasizes determinism and transparency. Our VM is designed with:
 
-- **READY TO FINALIZE** object lazy reclamation mechanism
+- READY TO FINALIZE Object Preservation and Delayed Garbage Collection Mechanism (Applicable to Hardware Control Object Protection)
 - Concurrency primitives and concurrency-safe syntax
 - Support for manual GC timing control
 - Customizable and trimmable VM features
@@ -99,7 +99,7 @@ Gpio.set(2,true);
 
 NexusEJS追求确定性和透明性，因此我们的VM设计了：
 
-- READY TO FINALIZE对象延迟回收机制
+- READY TO FINALIZE对象保活延迟回收机制（可用于硬件控制对象保护）
 - 并发原语与并发安全语法
 - 支持手动控制GC时机
 - 可定制和裁剪的VM功能
