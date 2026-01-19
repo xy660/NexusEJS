@@ -1,10 +1,9 @@
-using nejsc.Utils;
+﻿using nejsc.Utils;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
-using nejsc.Utils;
 using System.Reflection.Metadata.Ecma335;
 using System.Reflection;
 
@@ -46,7 +45,7 @@ namespace ScriptRuntime.Core
 
     class Compiler
     {
-        public static ushort Version = 4;
+        public static ushort Version = 5;
         enum OpCode
         {
             //运算符
@@ -97,6 +96,7 @@ namespace ScriptRuntime.Core
             DUP_PUSH, //从栈顶拷贝一个VariableValue压入栈
             JMP,
             JMP_IF_FALSE,//从栈弹出1个对象，先出来的是条件
+            JMP_IF_TRUE,
             CALLFUNC,
             RET,
             //TRY_ENTER指令包含：1b指令头+8b try块长度，由VM根据长度计算出catch块起点绝对坐标
@@ -129,8 +129,9 @@ namespace ScriptRuntime.Core
         enum ScopeType
         {
             NONE = 0,
-            LOOP = 1 << 0,
-            TRYCATCH = 1 << 1,
+            BREAK = 1 << 0,
+            CONTINUE = 1 << 1,
+            TRYCATCH = 1 << 2,
         }
         MemoryStream ms = new MemoryStream();
         StringBuilder sb = new StringBuilder();
@@ -222,7 +223,8 @@ namespace ScriptRuntime.Core
 
     // 跳转指令
     { OpCode.JMP, 0 },
-    { OpCode.JMP_IF_FALSE, -2 },
+    { OpCode.JMP_IF_FALSE, -1 },
+    { OpCode.JMP_IF_TRUE, -1 },
 
     // 函数调用和返回
     { OpCode.CALLFUNC, 1 },  // 一定会返回一个值，如果没return就返回null
@@ -291,6 +293,7 @@ namespace ScriptRuntime.Core
     { OpCode.CONST_STR, -1 },     // 1字节头 + 4字节长度 + 变长内容，标记为-1表示变长
     { OpCode.JMP, 5 },           // 1字节头 + 4字节地址
     { OpCode.JMP_IF_FALSE, 5 },  // 1字节头 + 4字节地址
+    { OpCode.JMP_IF_TRUE, 5 },  // 1字节头 + 4字节地址
     { OpCode.TRY_ENTER, 5 },     // 1字节头 + 4字节地址
     { OpCode.CALLFUNC, 2 },      // 1字节头 + 1字节参数数量
     { OpCode.STORE, 1 },
@@ -511,6 +514,7 @@ namespace ScriptRuntime.Core
                     break;
                 */
                 case OpCode.JMP:
+                case OpCode.JMP_IF_TRUE:
                 case OpCode.JMP_IF_FALSE:
                     ms.WriteByte((byte)(int)opcode);
                     ms.Write(BitConverter.GetBytes((int)param)); //指针的底层使用long存储
@@ -585,6 +589,15 @@ namespace ScriptRuntime.Core
             sb.AppendLine();
         }
 
+        void StackBalance(Compiler comp)
+        {
+            int effect = CalculateStackNetEffect(comp.ms.ToArray());
+            for (int i = 0; i < effect; i++)
+            {
+                comp.Emit(OpCode.POP); //栈平衡
+            }
+        }
+
         public Dictionary<string, FunctionInfo> FullCompile(ASTNode ast)
         {
             functions.Clear();
@@ -653,12 +666,6 @@ namespace ScriptRuntime.Core
                     Compile(ast.Childrens[1]);
                     Emit(BinaryOpMapper[ast.Raw.Substring(0, ast.Raw.Length - 1)]);
 
-                    /*
-                    ASTNode node = new ASTNode(ASTNode.ASTNodeType.BinaryOperation, ast.Raw[0].ToString());
-                    node.Childrens.Add(ast.Childrens[0]);
-                    node.Childrens.Add(ast.Childrens[1]);
-                    Compile(node);
-                    */
                 }
                 else
                 {
@@ -680,7 +687,7 @@ namespace ScriptRuntime.Core
                 //进入作用域
                 Emit(OpCode.SCOPE_PUSH,
                     coditionCode.Length + instructionSize[OpCode.JMP_IF_FALSE] +
-                    blockCode.Length + instructionSize[OpCode.JMP], ScopeType.LOOP);
+                    blockCode.Length + instructionSize[OpCode.JMP], ScopeType.BREAK | ScopeType.CONTINUE);
                 //生成while循环模板
                 ms.Write(coditionCode);
                 sb.Append(coditionAsm);
@@ -697,8 +704,76 @@ namespace ScriptRuntime.Core
 
                 requireForEachChildren = false;
             }
+            //测试用力
+            //for(let i = 0;i < 10;i++){if(i%2==0){println("not");continue;} println(i)}
             else if (ast.NodeType == ASTNode.ASTNodeType.ForStatement)
             {
+                var enterPosition = LocalVariableDefines.Count;
+
+                uint currentOffset = (uint)(baseOffset + ms.Length);
+
+                var (initPartCode, initPartAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, currentOffset)) { scopeCommand = false }.Compile(ast.Childrens[0]);
+
+                ms.Write(initPartCode.ToArray());
+                sb.Append(initPartAsm.ToString());
+
+                var codition = ast.Childrens[1];
+                var block = ast.Childrens[3];
+                var step = ast.Childrens[2];
+
+                //[INIT_PART]
+                //[SCOPE_PUSH(BREAK)]
+                //  [CODITION]
+                //  [JMP_IF_FALSE]
+                //  [SCOPE_PUSH(CONTINUE)]
+                //      [BLOCK]
+                //  [STEP_PART]
+                //  [JMP(前面所有的)]
+                var coditionOffset = (uint)(currentOffset + initPartCode.Length + instructionSize[OpCode.SCOPE_PUSH]);
+                var (coditionCode, coditionAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, coditionOffset)) { scopeCommand = false }.Compile(codition);
+                var blockCodeOffset = (uint)(coditionOffset + coditionCode.Length + instructionSize[OpCode.JMP_IF_FALSE] + instructionSize[OpCode.SCOPE_PUSH]);
+                var (blockCode, blockAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, blockCodeOffset)) { scopeCommand = false }.Compile(block);
+                var stepPartOffset = (uint)(blockCodeOffset + blockCode.Length);
+                var stepPartCompiler = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, stepPartOffset)) { scopeCommand = false };
+                stepPartCompiler.Compile(step);
+                StackBalance(stepPartCompiler); //对步进进行栈平衡消耗可能产生的废物
+                var stepPartCode = stepPartCompiler.ms.ToArray();
+                var stepPartAsm = stepPartCompiler.sb.ToString();
+
+
+                int fullPartSize = instructionSize[OpCode.SCOPE_PUSH] * 2;
+                fullPartSize += instructionSize[OpCode.JMP_IF_FALSE];
+                fullPartSize += instructionSize[OpCode.JMP];
+                fullPartSize += coditionCode.Length;
+                fullPartSize += blockCode.Length;
+                fullPartSize += stepPartCode.Length;
+
+                int jifSize = instructionSize[OpCode.SCOPE_PUSH];
+                jifSize += blockCode.Length;
+                jifSize += stepPartCode.Length;
+                jifSize += instructionSize[OpCode.JMP];
+
+                int loopBlockSize = blockCode.Length;
+
+                //SCOPE_PUSH指令的操作数Size不包含自身的大小，需要注意
+                //这里也不能把JMP指令放到外层作用域
+                int BreakScopeSize = fullPartSize - instructionSize[OpCode.SCOPE_PUSH];
+                Emit(OpCode.SCOPE_PUSH, BreakScopeSize, ScopeType.BREAK);
+                ms.Write(coditionCode);
+                sb.Append(coditionAsm);
+                Emit(OpCode.JMP_IF_FALSE, jifSize);
+                Emit(OpCode.SCOPE_PUSH, loopBlockSize, ScopeType.CONTINUE);
+                ms.Write(blockCode);
+                sb.Append(blockAsm);
+                ms.Write(stepPartCode);
+                sb.Append(stepPartAsm);
+                //往回跳转的时候复用Break层作用域
+                Emit(OpCode.JMP, -(fullPartSize - instructionSize[OpCode.SCOPE_PUSH]));
+
+                //清理可能出现的initPart定义变量
+                LocalVariableDefines.RemoveRange(enterPosition, LocalVariableDefines.Count - enterPosition);
+
+                /*
                 //展开为while循环格式，然后调用while循环进行处理
                 //for(init;codition;step){block}
 
@@ -716,7 +791,7 @@ namespace ScriptRuntime.Core
                 whileForBlock.Childrens[whileStatNodeIndex].Childrens[1].Childrens.Add(ast.Childrens[3]); //Block
                 whileForBlock.Childrens[whileStatNodeIndex].Childrens[1].Childrens.Add(ast.Childrens[2]); //步进
                 Compile(whileForBlock);
-
+                */
 
                 requireForEachChildren = false;
             }
@@ -1014,24 +1089,21 @@ namespace ScriptRuntime.Core
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.BlockCode) //花括号作用域块
             {
+                uint currentOffset = (uint)(baseOffset + ms.Length);
                 //基偏移加上作用域指令
-                if (scopeCommand) baseOffset += (uint)instructionSize[OpCode.SCOPE_PUSH];
+                if (scopeCommand) currentOffset += (uint)instructionSize[OpCode.SCOPE_PUSH];
 
                 //记录当前的局部变量栈位置
                 int enterPosition = LocalVariableDefines.Count;
 
-                var blockBytecode = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)baseOffset)); //这个compiler用来存储并进行最终局部变量清理
+                var blockBytecode = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, currentOffset)); //这个compiler用来存储并进行最终局部变量清理
                 foreach (var expr in ast.Childrens)
                 {
                     //单独编译每一条语句，对语句进行栈平衡
-                    var (bytecode, asm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)(baseOffset + blockBytecode.ms.Length))).Compile(expr);
-                    int effect = CalculateStackNetEffect(bytecode);
+                    var (bytecode, asm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)(currentOffset + blockBytecode.ms.Length))).Compile(expr);        
                     blockBytecode.ms.Write(bytecode); //存入最终筛选
                     blockBytecode.sb.AppendLine(asm);
-                    for (int i = 0; i < effect; i++)
-                    {
-                        blockBytecode.Emit(OpCode.POP); //栈平衡
-                    }
+                    StackBalance(blockBytecode);
                 }
 
 
@@ -1040,8 +1112,8 @@ namespace ScriptRuntime.Core
                 ms.Write(blockBytecode.ms.ToArray());
                 sb.AppendLine(blockBytecode.sb.ToString());
 
-                //清理内层变量
-                LocalVariableDefines.RemoveRange(enterPosition, LocalVariableDefines.Count - enterPosition);
+                //清理内层变量(如果有SCOPE指令)
+                if (scopeCommand) LocalVariableDefines.RemoveRange(enterPosition, LocalVariableDefines.Count - enterPosition);
 
                 requireForEachChildren = false;
             }
