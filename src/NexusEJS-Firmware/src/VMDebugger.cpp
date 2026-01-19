@@ -101,6 +101,7 @@ const char* IOpCodeStr_DBG[] = {
 	"DUP_PUSH", //从栈顶拷贝一个VariableValue压入栈
 	"JMP",
 	"JMP_IF_FALSE",//从栈弹出2个对象，先出来的是地址，后出来的是条件
+	"JMP_IF_TRUE",
 	"CALLFUNC",
 	"RET",
 	"TRY_ENTER", //标记try起点，压入异常处理程序栈（一个独立的TryCatch记录栈，异常发生后弹出异常处理程序栈最顶上的处理程序跳转）

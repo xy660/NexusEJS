@@ -34,6 +34,7 @@ uint8_t OpCode::instructionSize[] = {
     1,  // DUP_PUSH
     5,  // JMP
     5,  // JMP_IF_FALSE
+    5,  // JMP_IF_TRUE
     2,  // CALLFUNC
     1,  // RET
     5,  // TRY_ENTER

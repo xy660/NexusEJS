@@ -87,6 +87,7 @@ public:
         DUP_PUSH, //从栈顶拷贝一个VariableValue压入栈
         JMP,
         JMP_IF_FALSE,//从栈弹出1个对象，先出来的是条件
+        JMP_IF_TRUE,
         CALLFUNC,
         RET,
         //TRY_ENTER指令包含：1b指令头+8b try块长度

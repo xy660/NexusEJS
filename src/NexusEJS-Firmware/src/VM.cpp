@@ -127,6 +127,7 @@ const char* IOpCodeStr[] = {
 	"DUP_PUSH", //从栈顶拷贝一个VariableValue压入栈
 	"JMP",
 	"JMP_IF_FALSE",//从栈弹出2个对象，先出来的是地址，后出来的是条件
+	"JMP_IF_TRUE",
 	"CALLFUNC",
 	"RET",
 	"TRY_ENTER", //标记try起点，压入异常处理程序栈（一个独立的TryCatch记录栈，异常发生后弹出异常处理程序栈最顶上的处理程序跳转）
@@ -532,7 +533,7 @@ VariableValue VMWorker::VMWorkerTask() {
 
 #ifdef _DEBUG
 
-		/*
+		
 
 		static std::unordered_map<int, int> stat;
 		if (op != OpCode::RET) {
@@ -550,7 +551,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			printf("EIP: %d\r\n", rawep);
 			printf("===Environment===\r\n");
 			for (auto& env_pair : currentFn->functionEnvSymbols) {
-				printf("[%s]%s\n", wstring_to_string(env_pair.first).c_str(), wstring_to_string(env_pair.second.ToString()).c_str());
+				printf("[%s]%s\n", env_pair.first.c_str(), env_pair.second.ToString().c_str());
 			}
 			printf("===Variables===\r\n");
 			for (int i = 0; i < currentFn->localVariables.size(); i++) {
@@ -560,13 +561,13 @@ VariableValue VMWorker::VMWorkerTask() {
 				auto& name = package.ConstStringPool[currentFn->localVarNames[i]]->implement.stringImpl;
 				auto& varValue = currentFn->localVariables[i];
 
-				printf("[%s]%s\n", wstring_to_string(name).c_str(), wstring_to_string(varValue.ToString()).c_str());
+				printf("[%s]%s\n", name.c_str(), varValue.ToString().c_str());
 			}
 			printf("===Stack===\r\n");
 			int stki = 0;
 			for (auto& varb : currentFn->virtualStack) {
 				stki++;
-				printf("[%d]%ws\r\n", stki, varb.ToString().c_str());
+				printf("[%d]%s\r\n", stki, varb.ToString().c_str());
 			}
 
 			printf("\r\n\r\n===Scope===\r\n");
@@ -579,7 +580,7 @@ VariableValue VMWorker::VMWorkerTask() {
 
 		//======调试用=======
 
-		*/
+		
 
 #endif
 
@@ -729,7 +730,7 @@ VariableValue VMWorker::VMWorkerTask() {
 		{
 			bool success = false;
 			for (int i = currentFn->scopeStack.size() - 1; i >= 0; i--) {
-				if (currentFn->scopeStack[i].CheckControlFlowType(ScopeFrame::LOOP)) {
+				if (currentFn->scopeStack[i].CheckControlFlowType(ScopeFrame::BREAK)) {
 					currentFn->virtualStack.resize(currentFn->scopeStack[i].spStart);
 					currentFn->localVariables.resize(currentFn->scopeStack[i].localvarStart);
 					currentFn->localVarNames.resize(currentFn->scopeStack[i].localvarStart);
@@ -747,18 +748,17 @@ VariableValue VMWorker::VMWorkerTask() {
 		{
 			bool success = false;
 			for (int i = currentFn->scopeStack.size() - 1; i >= 0; i--) {
-				if (currentFn->scopeStack[i].CheckControlFlowType(ScopeFrame::LOOP)) {
+				if (currentFn->scopeStack[i].CheckControlFlowType(ScopeFrame::CONTINUE)) {
 					currentFn->virtualStack.resize(currentFn->scopeStack[i].spStart);
 					currentFn->localVariables.resize(currentFn->scopeStack[i].localvarStart);
 					currentFn->localVarNames.resize(currentFn->scopeStack[i].localvarStart);
-					currentFn->scopeStack.resize(i + 1); //弹出LOOP之上的所有作用域帧
-					currentFn->scopeStack.back().ep = 0; //重新开始执行这个作用域
+					currentFn->scopeStack.resize(i); //直接弹出包括此的整个作用域链来跳过
 					success = true;
 					break;
 				}
 			}
 			if (!success) {
-				ThrowError("无法执行break语句，无目标作用域可跳转");
+				ThrowError("无法执行continue语句，无目标作用域可跳过");
 			}
 			continue;
 		}
@@ -827,7 +827,6 @@ VariableValue VMWorker::VMWorkerTask() {
 		case OpCode::JMP:
 		{
 			uint32_t address;
-			//= *(uint32_t*)(currentFn->byteCode + rawep + 1);
 			memcpy(&address, currentFn->byteCode + rawep + 1, sizeof(uint32_t));
 			currentScope->ep += address;
 
@@ -837,11 +836,21 @@ VariableValue VMWorker::VMWorkerTask() {
 		{
 			VariableValue* codition = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable();
 			uint32_t addr;
-			//= *(uint32_t*)(currentFn->byteCode + rawep + 1);
 			memcpy(&addr, currentFn->byteCode + rawep + 1, sizeof(uint32_t));
 			if (!codition->Truty()) {
 				currentScope->ep += addr;
+			}
 
+			currentFn->virtualStack.pop_back();
+			break;
+		}
+		case OpCode::JMP_IF_TRUE:
+		{
+			VariableValue* codition = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable();
+			uint32_t addr;
+			memcpy(&addr, currentFn->byteCode + rawep + 1, sizeof(uint32_t));
+			if (codition->Truty()) {
+				currentScope->ep += addr;
 			}
 
 			currentFn->virtualStack.pop_back();

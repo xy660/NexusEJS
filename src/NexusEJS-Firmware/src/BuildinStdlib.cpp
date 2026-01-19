@@ -796,6 +796,65 @@ void MathClassInit() {
 
 #pragma endregion
 
+#pragma region ObjectClassImpl
+
+void ObjectClassInit() {
+	VMObject* objectClass = CreateStaticObject(ValueType::OBJECT);
+	objectClass->implement.objectImpl["keys"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+		if (args[0].getContentType() != ValueType::OBJECT) {
+			worker->ThrowError("invaild argument");
+			return VariableValue();
+		}
+		VMObject* keys = worker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
+		for (auto& pair : args[0].content.ref->implement.objectImpl) {
+			VMObject* strObject = worker->VMInstance->currentGC->GC_NewStringObject(pair.first);
+			keys->implement.arrayImpl.push_back(CreateReferenceVariable(strObject));
+		}
+
+		return CreateReferenceVariable(keys);
+		});
+
+	objectClass->implement.objectImpl["values"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+		if (args[0].getContentType() != ValueType::OBJECT) {
+			worker->ThrowError("invaild argument");
+			return VariableValue();
+		}
+		VMObject* values = worker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
+		for (auto& pair : args[0].content.ref->implement.objectImpl) {
+			values->implement.arrayImpl.push_back(pair.second);
+		}
+
+		return CreateReferenceVariable(values);
+		});
+
+	objectClass->implement.objectImpl["entries"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+		if (args[0].getContentType() != ValueType::OBJECT) {
+			worker->ThrowError("invalid argument");
+			return VariableValue();
+		}
+
+		VMObject* entriesArray = worker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
+
+		for (auto& pair : args[0].content.ref->implement.objectImpl) {
+			//[key, value]
+			VMObject* entryArray = worker->VMInstance->currentGC->GC_NewObject(ValueType::ARRAY);
+
+			VMObject* keyObject = worker->VMInstance->currentGC->GC_NewStringObject(pair.first);
+
+			entryArray->implement.arrayImpl.push_back(CreateReferenceVariable(keyObject));
+			entryArray->implement.arrayImpl.push_back(pair.second);
+
+			entriesArray->implement.arrayImpl.push_back(CreateReferenceVariable(entryArray));
+		}
+
+		return CreateReferenceVariable(entriesArray);
+		});
+
+	SystemBuildinSymbols["Object"] = CreateReferenceVariable(objectClass);
+}
+
+#pragma endregion
+
 //全局单例注册（非符号表内的SystemFunction）
 void SingleSystemFuncInit() {
 
@@ -1033,6 +1092,8 @@ void BuildinStdlib_Init()
 		});
 
 	MathClassInit();
+
+	ObjectClassInit();
 
 	VMObject* NumberClassObject = CreateStaticObject(ValueType::OBJECT);
 	NumberClassObject->implement.objectImpl["parseFloat"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {

@@ -1,8 +1,8 @@
 #pragma once
 
-#define VM_VERSION_NUMBER 4
+#define VM_VERSION_NUMBER 5
 
-#define VM_VERSION_STR "V1.4.3"
+#define VM_VERSION_STR "V1.4.4"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
@@ -59,9 +59,10 @@ public:
 	//当前作用域帧可接受的控制流指令响应
 	
 	enum ControlFlowType {
-		NONE = 0, //不可用，继续向上查找
-		LOOP = 1 << 0, //可接受break/continue
-		TRYCATCH = 1 << 1, //可接受throw
+		NONE = 0,
+		BREAK = 1 << 0,
+		CONTINUE = 1 << 1,
+		TRYCATCH = 1 << 2,
 	};
 	uint8_t ControlFlowFlag = 0;
 	inline bool CheckControlFlowType(ControlFlowType type) {
