@@ -708,14 +708,18 @@ namespace ScriptRuntime.Core
             //for(let i = 0;i < 10;i++){if(i%2==0){println("not");continue;} println(i)}
             else if (ast.NodeType == ASTNode.ASTNodeType.ForStatement)
             {
+                //用于暂存编译结果
+                Compiler forStatCompiler = new Compiler();
+
+
                 var enterPosition = LocalVariableDefines.Count;
 
                 uint currentOffset = (uint)(baseOffset + ms.Length);
 
                 var (initPartCode, initPartAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, currentOffset)) { scopeCommand = false }.Compile(ast.Childrens[0]);
 
-                ms.Write(initPartCode.ToArray());
-                sb.Append(initPartAsm.ToString());
+                forStatCompiler.ms.Write(initPartCode.ToArray());
+                forStatCompiler.sb.Append(initPartAsm.ToString());
 
                 var codition = ast.Childrens[1];
                 var block = ast.Childrens[3];
@@ -758,17 +762,25 @@ namespace ScriptRuntime.Core
                 //SCOPE_PUSH指令的操作数Size不包含自身的大小，需要注意
                 //这里也不能把JMP指令放到外层作用域
                 int BreakScopeSize = fullPartSize - instructionSize[OpCode.SCOPE_PUSH];
-                Emit(OpCode.SCOPE_PUSH, BreakScopeSize, ScopeType.BREAK);
-                ms.Write(coditionCode);
-                sb.Append(coditionAsm);
-                Emit(OpCode.JMP_IF_FALSE, jifSize);
-                Emit(OpCode.SCOPE_PUSH, loopBlockSize, ScopeType.CONTINUE);
-                ms.Write(blockCode);
-                sb.Append(blockAsm);
-                ms.Write(stepPartCode);
-                sb.Append(stepPartAsm);
+
+                //生成代码
+                forStatCompiler.Emit(OpCode.SCOPE_PUSH, BreakScopeSize, ScopeType.BREAK);
+                forStatCompiler.ms.Write(coditionCode);
+                forStatCompiler.sb.Append(coditionAsm);
+                forStatCompiler.Emit(OpCode.JMP_IF_FALSE, jifSize);
+                forStatCompiler.Emit(OpCode.SCOPE_PUSH, loopBlockSize, ScopeType.CONTINUE);
+                forStatCompiler.ms.Write(blockCode);
+                forStatCompiler.sb.Append(blockAsm);
+                forStatCompiler.ms.Write(stepPartCode);
+                forStatCompiler.sb.Append(stepPartAsm);
                 //往回跳转的时候复用Break层作用域
-                Emit(OpCode.JMP, -(fullPartSize - instructionSize[OpCode.SCOPE_PUSH]));
+                forStatCompiler.Emit(OpCode.JMP, -(fullPartSize - instructionSize[OpCode.SCOPE_PUSH]));
+
+                //fix: 创造一个大作用域包裹，这样initPart不会泄露
+                Emit(OpCode.SCOPE_PUSH, (int)forStatCompiler.ms.Length);
+                //将暂存的字节码Emit到主存储区
+                ms.Write(forStatCompiler.ms.ToArray()); 
+                sb.Append(forStatCompiler.sb);
 
                 //清理可能出现的initPart定义变量
                 LocalVariableDefines.RemoveRange(enterPosition, LocalVariableDefines.Count - enterPosition);
