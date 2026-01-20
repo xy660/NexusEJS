@@ -1,4 +1,4 @@
-let SSD1306 = require("SSD1306_lite.nejs");
+let SSD1306 = require("/SSD1306_lite.nejs");
 let oled = SSD1306.create(5, 4, 2);
 
 oled.setInverseColor(true);
