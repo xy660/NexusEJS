@@ -2,7 +2,10 @@ let val = 0;
 vtStart(() => {
     while (true) {
         println("hha");
+        //同一个线程中多个VT的共享资源访问先关闭调度器
+        vtSetScheduleEnabled(false);
         println(val++);
+        vtSetScheduleEnabled(true);
         vtDelay(300);
     }
 });
