@@ -16,16 +16,26 @@ NexusEJS aims to lower the development barrier for IoT, enabling more people to 
 
 **NexusEJS aims to be usable out of the box, without the need to repeatedly handle a large number of C/C++ binding requirements.**
 
+**Built-in virtual thread scheduler, enabling parallel multitasking without RTOS**
+
 You can turn on an LED on an **ESP32** or any supported SoC with just one line of code:
 
 ```javascript
 Gpio.set(2, true);
 ```
 
+Easily implement multitasking:
+
+```javascript
+vtStart(processData);
+vtStart(readButton); // Schedule virtual threads within the current thread (bare metal supported)
+runTask(readSensor); // Start RTOS thread (requires OS support)
+```
+
 NexusEJS emphasizes determinism and transparency. Our VM is designed with:
 
 - READY TO FINALIZE Object Preservation and Delayed Garbage Collection Mechanism (Applicable to Hardware Control Object Protection)
-- Concurrency primitives and concurrency-safe syntax
+- Concurrency primitives and concurrency-safe syntax (M:N architecture supporting virtual threads & RTOS binding layer)
 - Support for manual GC timing control
 - Customizable and trimmable VM features
 - Platform-agnostic, easily portable VM core
@@ -91,16 +101,26 @@ NexusEJS致力于降低IoT的开发门槛，让更多人也能参与IoT设备的
 
 **NexusEJS目标是做到开箱即用，无需重复处理大量的C/C++绑定需求**
 
+**内置虚拟线程调度器，无需RTOS即可轻松实现并行多任务同步运行**
+
 您只需要一行代码即可点亮`ESP32`或任何具备支持驱动的开发SoC的led灯：
 
 ```javascript
 Gpio.set(2,true);
 ```
 
+轻松实现多任务：
+
+```javascript
+vtStart(processData);
+vtStart(readButton); //在当前线程内调度虚拟线程（裸机可用）
+runTask(readSensor); //启动RTOS线程（需要操作系统支持）
+```
+
 NexusEJS追求确定性和透明性，因此我们的VM设计了：
 
 - READY TO FINALIZE对象保活延迟回收机制（可用于硬件控制对象保护）
-- 并发原语与并发安全语法
+- 并发原语与并发安全语法（采用M:N架构，支持虚拟线程&RTOS绑定层）
 - 支持手动控制GC时机
 - 可定制和裁剪的VM功能
 - 平台无关且易于移植的VM核心
