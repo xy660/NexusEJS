@@ -969,8 +969,8 @@ void VTAPI_Init() {
 			return VariableValue();
 		}
 
-		//没有其他虚拟线程可调度时退回到操作系统的sleep
-		if (currentWorker->getAllVTBlocks().size() <= 1) {
+		//没有其他虚拟线程可调度或者调度器被禁用时退回到操作系统的sleep
+		if (currentWorker->getAllVTBlocks().size() <= 1 || (!currentWorker->getVTScheduleEnabled())) {
 			platform.ThreadSleep((uint32_t)args[0].content.number);
 		}
 		else {

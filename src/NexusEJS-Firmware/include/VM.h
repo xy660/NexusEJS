@@ -193,6 +193,10 @@ public:
 		vtScheduleEnabled = value;
 	}
 
+	inline bool getVTScheduleEnabled() {
+		return vtScheduleEnabled;
+	}
+
 
 	VariableValue VMWorkerTask();
 
