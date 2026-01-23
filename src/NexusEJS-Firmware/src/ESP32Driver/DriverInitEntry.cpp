@@ -167,6 +167,11 @@ void ESP32_GpioClass_Init(VM* VMInstance) {
          VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::NUM ||
             args[1].getContentType() != ValueType::BOOL) {
+
+          printf("args[0]=%s\n",args[0].ToString().c_str());
+          printf("args[0].ref=%p\n",args[0].content.ref);
+          printf("args[0].type=%d contentType=%d\n",args[0].varType,args[0].getContentType());
+          printf("args[1].type=%d contentType=%d\n",args[1].varType,args[1].getContentType());
           currentWorker->ThrowError("Gpio.set: invalid arguments");
         }
         uint8_t pin = (uint8_t)args[0].content.number;

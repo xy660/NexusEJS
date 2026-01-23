@@ -2,11 +2,14 @@
 
 #define VM_VERSION_NUMBER 5
 
-#define VM_VERSION_STR "V1.4.4"
+#define VM_VERSION_STR "V1.5.0"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
 #define VM_DEBUGGER_ENABLED 0
+
+#define VT_SCHED_INSTRUCTION_CNT 100
+#define VT_SCHED_IDLE_SLEEP_TIME_MS 10
 
 #include <memory>
 #include <vector>
@@ -20,6 +23,9 @@ class GC;
 class VM;
 class VMWorker;
 class ScopeFrame;
+class VirtualThreadSchedBlock;
+
+static bool vtCanScheduleCheck(VirtualThreadSchedBlock& block);
 
 
 //方法级别独立执行上下文（栈帧）
@@ -76,35 +82,114 @@ public:
 	
 };
 
+class VirtualThreadSchedBlock {
+public:
+
+	VirtualThreadSchedBlock() {
+
+	}
+
+	VirtualThreadSchedBlock(VariableValue& function) {
+		if (function.varType == ValueType::FUNCTION && 
+			function.content.function->type == ScriptFunction::System) {
+			printf("invaild VirtualThreadBlock argument");
+			return;
+		}
+
+		if (function.getContentType() != ValueType::FUNCTION) {
+			printf("invaild VirtualThreadBlock argument type");
+			return;
+		}
+		
+		ScriptFunction* sfn = NULL;
+		VMObject* closure = NULL;
+		if (function.varType == ValueType::REF) {
+			sfn = function.content.ref->implement.closFuncImpl.sfn;
+			closure = function.content.ref->implement.closFuncImpl.closure;
+		}
+		else {
+			sfn = function.content.function;
+		}
+		ScopeFrame defaultScope;
+		defaultScope.byteCodeStart = 0;
+		defaultScope.byteCodeLength = sfn->funcImpl.local_func.byteCodeLength;
+		FuncFrame frame;
+		frame.byteCode = sfn->funcImpl.local_func.byteCode;
+		frame.byteCodeLength = sfn->funcImpl.local_func.byteCodeLength;
+		frame.functionInfo = &sfn->funcImpl.local_func;
+		frame.scopeStack.push_back(defaultScope);
+		if (closure) {
+			frame.functionEnvSymbols["_clos"] = CreateReferenceVariable(closure);
+		}
+
+		this->callFrames.push_back(frame);
+		this->vtStatus = VirtualThreadSchedBlock::ACTIVED;
+	}
+
+	std::vector<FuncFrame> callFrames;
+	uint32_t awakeTime = 0; //由TickCount32决定
+	enum VirtualThreadStatus {
+		NONE,
+		ACTIVED,
+		BLOCKING,
+		DEAD
+	} vtStatus = NONE;
+};
+
 class VMWorker {
 private:
-	std::vector<FuncFrame> callFrames;
+
+	std::vector<VirtualThreadSchedBlock> VirtualThreads;
+
+	uint32_t vtSchedIndex = 0; //调度器指针，表示当前是第几个虚拟线程执行
+
+	uint32_t vtInstrCounter = VT_SCHED_INSTRUCTION_CNT;
 
 	bool needResetLoop = false;
-
-	
-	
-	FuncFrame* GetCurrentFrame();
 
 public:
 
 	bool keepAlive = false;
+
+	VM* VMInstance;
 
 	uint32_t currentWorkerId; //当前工作id
 
 	VariableValue Init(ByteCodeFunction& entry_func, std::vector<VariableValue>& args, std::unordered_map <std::string, VariableValue>* env = NULL);
 
 	void ThrowError(std::string messageString);
-
-	VM* VMInstance;
+	void ThrowError(VariableValue& messageString);
 
 	VMWorker(VM* current_vm);
 
-	std::vector<FuncFrame>& getCallingLink();
+	~VMWorker() {
+		//先放着看看，后续看看实际运行行为
+		for (auto& vt : VirtualThreads) {
+			vt.callFrames.clear();
+		}
+	}
+
+	void vtScheduleNext(); //让调度器切换到下一个虚拟线程(此函数还承担清理死亡虚拟线程的任务)
+
+	bool deadCheck();
+
+	inline std::vector<VirtualThreadSchedBlock>& getAllVTBlocks()
+	{
+		return this->VirtualThreads;
+	}
+
+	inline VirtualThreadSchedBlock& getCurrentVTBlock() {
+		return this->VirtualThreads[this->vtSchedIndex];
+	}
+
+	inline std::vector<FuncFrame>& getCurrentCallingLink()
+	{
+		return this->VirtualThreads[this->vtSchedIndex].callFrames;
+	}
+
 
 	VariableValue VMWorkerTask();
 
-	void ThrowError(VariableValue& messageString);
 };
 
 class TaskContext {

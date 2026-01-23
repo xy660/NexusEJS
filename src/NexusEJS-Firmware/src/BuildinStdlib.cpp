@@ -73,7 +73,7 @@ void* TaskEntry(void* param) {
 	platform.MutexLock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
 
 	context = taskParam.VMInstance->tasks[taskParam.taskId]; //重新获取避免地址变化
-	context.TaskObject->implement.objectImpl["_ret"] = res;
+	if(context.TaskObject) context.TaskObject->implement.objectImpl["_ret"] = res;
 	context.status = TaskContext::STOPED;
 
 	platform.MutexUnlock(taskParam.VMInstance->currentGC->GCWorkersVecLock);
@@ -704,6 +704,12 @@ void MathClassInit() {
 		});
 
 	mathClass->implement.objectImpl["random"] = VM::CreateSystemFunc(0, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+		static volatile bool inited = false;
+		if (!inited) {
+			inited = true;
+			srand(platform.TickCount32()); //启动时间作为种子
+		}
+		
 		return CreateNumberVariable((double)rand() / RAND_MAX);
 		});
 
@@ -927,11 +933,64 @@ void SingleSystemFuncInit() {
 }
 
 
+void VTAPI_Init() {
+	//虚拟线程启动API
+	RegisterSystemFunc("vtStart", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+		if (args[0].getContentType() != ValueType::FUNCTION) {
+			currentWorker->ThrowError("vtStart(entry) only accept Func type with 1 arg.");
+			return VariableValue();
+		}
+		ScriptFunction* targetInvoke;
+		if (args[0].varType == ValueType::REF) {
+			targetInvoke = args[0].content.ref->implement.closFuncImpl.sfn;
+		}
+		else {
+			targetInvoke = args[0].content.function;
+		}
+
+		if (targetInvoke->type != ScriptFunction::Local) {
+			currentWorker->ThrowError("task must be local function.");
+			return VariableValue();
+		}
+
+		if (targetInvoke->argumentCount != 0) {
+			currentWorker->ThrowError("entry must has 0 arg");
+			return VariableValue();
+		}
+
+		currentWorker->getAllVTBlocks().emplace_back(args[0]);
+
+		return VariableValue();
+		});
+
+	RegisterSystemFunc("vtDelay", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+		if (args[0].varType != ValueType::NUM) {
+			currentWorker->ThrowError("invaild argument");
+			return VariableValue();
+		}
+
+		//没有其他虚拟线程可调度时退回到操作系统的sleep
+		if (currentWorker->getAllVTBlocks().size() <= 1) {
+			platform.ThreadSleep((uint32_t)args[0].content.number);
+		}
+		else {
+			//让出CPU让调度器调度其他虚拟线程
+			auto& vtBlock = currentWorker->getCurrentVTBlock();
+			vtBlock.vtStatus = VirtualThreadSchedBlock::BLOCKING;
+			vtBlock.awakeTime = platform.TickCount32() + args[0].content.number;
+		}
+
+		return VariableValue();
+		});
+}
+
 void BuildinStdlib_Init()
 {
 	//BuildinSymbolLock = platform.MutexCreate();
 
 	SingleSystemFuncInit();
+
+	VTAPI_Init();
 
 	RegisterSystemFunc("runTask", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		//return VariableValue();
@@ -941,7 +1000,7 @@ void BuildinStdlib_Init()
 		//修改workers表要确保线程安全，同一时间只有一个线程修改workers和context表
 
 		if (args[0].getContentType() != ValueType::FUNCTION) {
-			currentWorker->ThrowError("runTask(entry,param) only accept Func type with 1 arg.");
+			currentWorker->ThrowError("runTask(entry) only accept Func type with 1 arg.");
 			return VariableValue();
 		}
 

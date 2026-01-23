@@ -37,7 +37,6 @@ public:
     enum IValueType : uint8_t
     {
         UNDEFINED, //未定义
-        CONTEXT,
         ANY,
         NUM,
         STRING,
@@ -46,7 +45,7 @@ public:
         OBJECT,
         FUNCTION,
         PTR,
-        PROMISE,
+        BOXEDVAL, //装箱
         BRIDGE, //VariableValue指针代理
         REF, //VariableValue引用类型
         NULLREF, //空引用 
@@ -81,7 +80,7 @@ public:
 
     bool readOnly = false;
 
-    //获取真实类型，每次使用值都需要调用
+    //获取真实值类型，每次使用值都需要调用
     VariableValue* getRawVariable();
     const VariableValue* getRawVariableConst() const;
 
@@ -122,6 +121,7 @@ public:
         std::vector<VariableValue> arrayImpl;
         std::string stringImpl;
         ClosureFunctionImpl closFuncImpl;
+        VariableValue boxedValueImpl;
         VMOImplement(){
         }
         ~VMOImplement() {};
@@ -371,3 +371,5 @@ inline VariableValue CreateReferenceVariable(VMObject* value,bool readOnly = fal
     ret.readOnly = readOnly;
     return ret;
 }
+
+VariableValue MakeBoxedValue(VariableValue& value, VMWorker* worker);

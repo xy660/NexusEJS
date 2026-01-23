@@ -89,7 +89,6 @@ public:
 	//void SetObjectProtect(VMObject* vmo,bool Value);
 
 
-
 	void GC_Collect();
 
 	

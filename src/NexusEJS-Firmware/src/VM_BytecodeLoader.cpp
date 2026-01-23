@@ -19,7 +19,6 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 
 	for (int i = 0; i < 4; i++) { //验证magic
 		if (data[i] != magic[i]) {
-			printf("nejs package magic verify failed\n");
 			return false;
 		}
 	}
@@ -32,7 +31,6 @@ uint16_t VM::LoadPackedProgram(uint8_t* data, uint32_t length) {
 	pos += sizeof(uint16_t);
 
 	if (version != VM_VERSION_NUMBER) {
-		printf("nejs package version not support %d require %d\n",version,VM_VERSION_NUMBER);
 		return 0; //不兼容当前版本
 	}
 

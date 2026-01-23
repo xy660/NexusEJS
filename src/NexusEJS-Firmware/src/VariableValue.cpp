@@ -4,6 +4,7 @@
 #include <sstream>
 #include <iomanip>
 #include "VM.h"
+#include "GC.h"
 
 constexpr uint16_t ToStringDepth = 10; //VariableValue::ToString最大递归深度
 
@@ -17,6 +18,14 @@ VariableValue* VariableValue::getRawVariable() {
     while (current->varType == ValueType::BRIDGE) {
         current = current->content.bridge_ref;
     }
+
+    //处理自动拆箱
+    if (current->varType == ValueType::REF &&
+        current->content.ref->type == ValueType::BOXEDVAL) {
+
+        return &current->content.ref->implement.boxedValueImpl;
+    }
+
     return current;
 }
 
@@ -27,6 +36,14 @@ const VariableValue* VariableValue::getRawVariableConst() const
     while (current->varType == ValueType::BRIDGE) {
         current = current->content.bridge_ref;
     }
+
+    //处理自动拆箱
+    if (current->varType == ValueType::REF &&
+        current->content.ref->type == ValueType::BOXEDVAL) {
+
+        return &current->content.ref->implement.boxedValueImpl;
+    }
+
     return current;
 }
 
@@ -113,9 +130,6 @@ std::string VMObject::ToString(uint16_t depth) {
     {
     case ValueType::NULLREF:
         return "null";
-        break;
-    case ValueType::CONTEXT:
-        break;
     case ValueType::ANY:
         break;
     case ValueType::NUM: //值类型不会出现在这里
@@ -172,8 +186,8 @@ std::string VMObject::ToString(uint16_t depth) {
     }
     case ValueType::PTR: //值类型不会出现在这里
         break;
-    case ValueType::PROMISE:
-        break;
+    case ValueType::BOXEDVAL:
+        return this->implement.boxedValueImpl.ToString(depth + 1);
     default:
         return "error-object";
     }
@@ -182,6 +196,7 @@ std::string VMObject::ToString(uint16_t depth) {
 
 bool VariableValue::Truty() {
     ValueType::IValueType contentType = this->getContentType();
+    VariableValue* rawVariable = this->getRawVariable();
     switch (contentType)
     {
     case ValueType::UNDEFINED:
@@ -189,15 +204,15 @@ bool VariableValue::Truty() {
     case ValueType::NULLREF:
         return false;
     case ValueType::NUM:
-        return this->content.number != 0;
+        return rawVariable->content.number != 0;
     case ValueType::STRING:
-        return this->content.ref->implement.stringImpl.length() > 0;
+        return rawVariable->content.ref->implement.stringImpl.length() > 0;
     case ValueType::BOOL:
-        return this->content.boolean;
+        return rawVariable->content.boolean;
     case ValueType::ARRAY:
-        return this->content.ref->implement.arrayImpl.size() > 0;
+        return rawVariable->content.ref->implement.arrayImpl.size() > 0;
     case ValueType::OBJECT:
-        return this->content.ref->implement.objectImpl.size() > 0;
+        return rawVariable->content.ref->implement.objectImpl.size() > 0;
     default:
         return true;
     }
@@ -246,7 +261,7 @@ VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObj
         }
 
         frame.scopeStack.push_back(defaultScope);
-        currentWorker->getCallingLink().push_back(frame);
+        currentWorker->getCurrentCallingLink().push_back(frame);
 
         //移交控制权给虚拟机继续执行脚本函数
         VariableValue result; 
@@ -268,4 +283,13 @@ VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObj
     }
 
     return VariableValue();
+}
+
+
+VariableValue MakeBoxedValue(VariableValue& value, VMWorker* worker) {
+    VMObject* vmo = worker->VMInstance->currentGC->GC_NewObject(ValueType::BOXEDVAL);
+    vmo->implement.boxedValueImpl = value;
+    //字节码循环内联的原生函数调用需要消除保护
+    vmo->protectStatus = VMObject::NOT_PROTECTED;
+    return CreateReferenceVariable(vmo);
 }

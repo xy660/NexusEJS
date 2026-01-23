@@ -81,17 +81,17 @@ void GC::StopTheWorld() {
 	platform.MutexLock(GCWorkersVecLock);
 	//对已经死亡的Worker执行清理，从vector移除
 	for (auto it = bindingVM->workers.begin(); it != bindingVM->workers.end();) {
-		if ((*it)->getCallingLink().size() > 0) {
+		VMWorker* curWorker = *it;
+		if (!curWorker->deadCheck()) {
 			aliveWorkerCount++;
 			it++;
 		}
 		else {
 			// 从vector中移除已完成的worker
-			VMWorker* deadWorker = *it;
 			//检查是否是需要重用的外部worker
-			if (!deadWorker->keepAlive) {
-				deadWorker->~VMWorker();
-				platform.MemoryFree(deadWorker);
+			if (!curWorker->keepAlive) {
+				curWorker->~VMWorker();
+				platform.MemoryFree(curWorker);
 				it = bindingVM->workers.erase(it);
 			}
 			else {
@@ -232,9 +232,10 @@ void DFS_TravelObject(std::stack<VMObject*>& dfsStack, Func procObject, VM* VMIn
 			//auto& vec = std::get<std::vector<VariableValue>>(obj->implement);
 			auto& vec = obj->implement.arrayImpl;
 			for (auto& variable : vec) {
-				VariableValue* current = variable.getRawVariable();
-				if (current->varType == ValueType::REF) {
-					dfsStack.push(current->content.ref);
+				//VariableValue* current = variable.getRawVariable();
+
+				if (variable.varType == ValueType::REF) {
+					dfsStack.push(variable.content.ref);
 				}
 			}
 		}
@@ -242,9 +243,9 @@ void DFS_TravelObject(std::stack<VMObject*>& dfsStack, Func procObject, VM* VMIn
 			//auto& objmap = std::get<std::unordered_map<std::string, VariableValue>>(obj->implement);
 			auto& objmap = obj->implement.objectImpl;
 			for (auto& pair : objmap) {
-				VariableValue* current = pair.second.getRawVariable();
-				if (current->varType == ValueType::REF) {
-					dfsStack.push(current->content.ref);
+				//VariableValue* current = pair.second.getRawVariable();
+				if (pair.second.varType == ValueType::REF) {
+					dfsStack.push(pair.second.content.ref);
 				}
 			}
 		}
@@ -315,45 +316,47 @@ void GC::Internal_GC_Collect() {
 
 	//遍历栈起点，将所有持有的局部变量设置为root
 	for (auto worker : bindingVM->workers) {
-		for (auto& fnFrame : worker->getCallingLink()) {
+		for (auto& vThread : worker->getAllVTBlocks()) {
+			for (auto& fnFrame : vThread.callFrames) {
 
-			//将调用链的所有字节码函数所属的包标记，运行中的字节码函数不应回收
-			bindingVM->loadedPackages[fnFrame.functionInfo->packageId].GCMarked = true;
+				//将调用链的所有字节码函数所属的包标记，运行中的字节码函数不应回收
+				bindingVM->loadedPackages[fnFrame.functionInfo->packageId].GCMarked = true;
 
-			for (auto& variable_ref : fnFrame.virtualStack) {
-				if (variable_ref.varType == ValueType::REF) { //排除三个基本值类型其他都是引用
-					//将局部变量引用的对象视作垃圾回收对象图根
-					dfsStack.push(variable_ref.content.ref);
+				for (auto& variable_ref : fnFrame.virtualStack) {
+					if (variable_ref.varType == ValueType::REF) { //排除三个基本值类型其他都是引用
+						//将局部变量引用的对象视作垃圾回收对象图根
+						dfsStack.push(variable_ref.content.ref);
+					}
+					else if (variable_ref.varType == ValueType::FUNCTION &&
+						variable_ref.content.function->type == ScriptFunction::Local) {
+						//标记包内字节码函数对象
+						uint16_t id = variable_ref.content.function->funcImpl.local_func.packageId;
+						bindingVM->loadedPackages[id].GCMarked = true;
+					}
 				}
-				else if (variable_ref.varType == ValueType::FUNCTION &&
-					variable_ref.content.function->type == ScriptFunction::Local) {
-					//标记包内字节码函数对象
-					uint16_t id = variable_ref.content.function->funcImpl.local_func.packageId;
-					bindingVM->loadedPackages[id].GCMarked = true;
+				//扫描局部变量
+				for (auto& local_var : fnFrame.localVariables) {
+					if (local_var.varType == ValueType::REF) {
+						dfsStack.push(local_var.content.ref);
+					}
+					else if (local_var.varType == ValueType::FUNCTION &&
+						local_var.content.function->type == ScriptFunction::Local) {
+						//标记包内字节码函数对象
+						uint16_t id = local_var.content.function->funcImpl.local_func.packageId;
+						bindingVM->loadedPackages[id].GCMarked = true;
+					}
 				}
-			}
-			//扫描局部变量
-			for (auto& local_var : fnFrame.localVariables) {
-				if (local_var.varType == ValueType::REF) {
-					dfsStack.push(local_var.content.ref);
-				}
-				else if (local_var.varType == ValueType::FUNCTION &&
-					local_var.content.function->type == ScriptFunction::Local) {
-					//标记包内字节码函数对象
-					uint16_t id = local_var.content.function->funcImpl.local_func.packageId;
-					bindingVM->loadedPackages[id].GCMarked = true;
-				}
-			}
-			//扫描局部环境符号表
-			for (auto& env_pair : fnFrame.functionEnvSymbols) {
-				if (env_pair.second.varType == ValueType::REF) {
-					dfsStack.push(env_pair.second.content.ref);
-				}
-				else if (env_pair.second.varType == ValueType::FUNCTION &&
-					env_pair.second.content.function->type == ScriptFunction::Local) {
-					//标记包内字节码函数对象
-					uint16_t id = env_pair.second.content.function->funcImpl.local_func.packageId;
-					bindingVM->loadedPackages[id].GCMarked = true;
+				//扫描局部环境符号表
+				for (auto& env_pair : fnFrame.functionEnvSymbols) {
+					if (env_pair.second.varType == ValueType::REF) {
+						dfsStack.push(env_pair.second.content.ref);
+					}
+					else if (env_pair.second.varType == ValueType::FUNCTION &&
+						env_pair.second.content.function->type == ScriptFunction::Local) {
+						//标记包内字节码函数对象
+						uint16_t id = env_pair.second.content.function->funcImpl.local_func.packageId;
+						bindingVM->loadedPackages[id].GCMarked = true;
+					}
 				}
 			}
 		}
