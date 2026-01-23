@@ -1272,7 +1272,7 @@ VariableValue VMWorker::VMWorkerTask() {
 
 			//检查调度器是否需要调度下一个虚拟线程
 			//仅当虚拟线程数量>1才调度
-			if (VirtualThreads.size() > 1) {
+			if (VirtualThreads.size() > 1 && this->vtScheduleEnabled) {
 				vtInstrCounter--;
 				if (vtInstrCounter <= 0) {
 					vtScheduleNext();
