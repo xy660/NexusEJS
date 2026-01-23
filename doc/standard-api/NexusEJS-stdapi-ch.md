@@ -95,6 +95,16 @@
 - *runTask(entry: Function)* 
   启动新线程执行指定函数，返回任务控制对象
 
+- *delay(ms : number)*
+
+让出CPU使当前worker休眠指定毫秒数
+
+- *vtStart(entry: Function)*
+  在当前线程启动新的虚拟线程（VT） 无返回值
+
+- *vtDelay(ms: number)*
+  让出当前虚拟线程的调度资源，并在`ms`毫秒后重新进入就绪调度状态
+
 ### 任务控制对象方法
 
 - *.isRunning()* - 检查任务是否正在运行
@@ -136,9 +146,6 @@ try{
 - *gc()*
 强制在当前线程唤醒GC，暂停世界并回收内存垃圾
 
-- *delay(ms : number)*
-
-让出CPU使当前worker休眠指定毫秒数
 
 ## 动态模块
 
