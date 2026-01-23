@@ -187,6 +187,10 @@ static bool vtCanScheduleCheck(VirtualThreadSchedBlock& block) {
 
 void VMWorker::vtScheduleNext()
 {
+	if (!vtScheduleEnabled) {
+		return;
+	}
+
 	vtSchedIndex = (vtSchedIndex + 1) % VirtualThreads.size(); //往下查找一个
 
 	//记录调度扫描起点，如果产生回环则此时没有任何虚拟线程可以被调度

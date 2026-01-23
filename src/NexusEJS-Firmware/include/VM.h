@@ -146,6 +146,8 @@ private:
 	uint32_t vtInstrCounter = VT_SCHED_INSTRUCTION_CNT;
 
 	bool needResetLoop = false;
+	
+	bool vtScheduleEnabled = true;
 
 public:
 
@@ -185,6 +187,10 @@ public:
 	inline std::vector<FuncFrame>& getCurrentCallingLink()
 	{
 		return this->VirtualThreads[this->vtSchedIndex].callFrames;
+	}
+
+	inline void setVTScheduleEnabled(bool value) {
+		vtScheduleEnabled = value;
 	}
 
 

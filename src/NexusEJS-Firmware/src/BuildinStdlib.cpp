@@ -978,9 +978,22 @@ void VTAPI_Init() {
 			auto& vtBlock = currentWorker->getCurrentVTBlock();
 			vtBlock.vtStatus = VirtualThreadSchedBlock::BLOCKING;
 			vtBlock.awakeTime = platform.TickCount32() + args[0].content.number;
+			currentWorker->vtScheduleNext();
 		}
 
 		return VariableValue();
+		});
+
+	RegisterSystemFunc("vtSetScheduleEnabled", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+
+		if (args[0].varType != ValueType::BOOL) {
+			currentWorker->ThrowError("invaild argument");
+			return VariableValue();
+		}
+
+		//if(args[0].content.boolean)
+		currentWorker->setVTScheduleEnabled(args[0].content.boolean);
+
 		});
 }
 
