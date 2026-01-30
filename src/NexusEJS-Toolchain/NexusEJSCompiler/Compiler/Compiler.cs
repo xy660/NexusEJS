@@ -684,22 +684,42 @@ namespace ScriptRuntime.Core
                 var blockCodeOffset = (uint)(coditionOffset + coditionCode.Length + instructionSize[OpCode.JMP_IF_FALSE]);
                 var (blockCode, blockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines ,OffsetLineMapper, blockCodeOffset)) { scopeCommand = false }.Compile(block);
 
+                //[SCOPE_PUSH(TotalSize)]  SCOPE_PUSH的大小不包含自己的大小
+                //  [CODITION]
+                //  [JMP_IF_FALSE]
+                //  [SCOPE_PUSH(code)]
+                //      [BLOCK]
+                //      [JMP(SCOPE_START)]
+
+                int totalSize = coditionCode.Length;
+                totalSize += instructionSize[OpCode.JMP_IF_FALSE];
+                totalSize += instructionSize[OpCode.SCOPE_PUSH];
+                totalSize += blockCode.Length;
+                totalSize += instructionSize[OpCode.JMP];
+
                 //进入作用域
-                Emit(OpCode.SCOPE_PUSH,
-                    coditionCode.Length + instructionSize[OpCode.JMP_IF_FALSE] +
-                    blockCode.Length + instructionSize[OpCode.JMP], ScopeType.BREAK | ScopeType.CONTINUE);
-                //生成while循环模板
+                Emit(OpCode.SCOPE_PUSH ,totalSize , ScopeType.BREAK);
+
                 ms.Write(coditionCode);
                 sb.Append(coditionAsm);
 
+                int JmpOutScopeDistance = instructionSize[OpCode.SCOPE_PUSH];
+                JmpOutScopeDistance += blockCode.Length;
+                JmpOutScopeDistance += instructionSize[OpCode.JMP];
+
                 //生成条件不成立跳过指令，包括循环体代码 正向跳转不需要包含自己
-                Emit(OpCode.JMP_IF_FALSE, blockCode.Length + instructionSize[OpCode.JMP]);
+                Emit(OpCode.JMP_IF_FALSE, JmpOutScopeDistance);
+
+                int whileBodyScopeSize = blockCode.Length;
+
+                //内层循环体代码独立作用域可跳出
+                Emit(OpCode.SCOPE_PUSH, whileBodyScopeSize,ScopeType.CONTINUE);
 
                 ms.Write(blockCode);
                 sb.Append(blockAsm);
 
                 //负向跳转需要包含自己大小
-                Emit(OpCode.JMP, -(blockCode.Length + coditionCode.Length + instructionSize[OpCode.JMP] + instructionSize[OpCode.JMP_IF_FALSE]));
+                Emit(OpCode.JMP, -totalSize);
 
 
                 requireForEachChildren = false;
