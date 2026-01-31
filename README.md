@@ -34,12 +34,13 @@ runTask(readSensor); // Start RTOS thread (requires OS support)
 
 NexusEJS emphasizes determinism and transparency. Our VM is designed with:
 
-- READY TO FINALIZE Object Preservation and Delayed Garbage Collection Mechanism (Applicable to Hardware Control Object Protection)
-- Concurrency primitives and concurrency-safe syntax (M:N architecture supporting virtual threads & RTOS binding layer)
-- Support for manual GC timing control
-- Customizable and trimmable VM features
-- Platform-agnostic, easily portable VM core
-- Native C/C++ binding
+- Destructor keep-alive mechanism (destructors can prevent GC from reclaiming the object itself)
+- Concurrency primitives and thread-safe syntax (using M:N architecture, supporting virtual threads & RTOS binding layer)
+- Module-aware GC, automatically unloading unused bytecode caches and constant pool caches
+- Support for manual control of GC timing
+- Customizable and configurable VM features
+- Platform-independent and easily portable VM core
+- Native C/C++ bindings
 
 In tests on ESP32, under a single task and without frequent object creation:
 - Average memory usage: about **55 KB**
@@ -119,8 +120,9 @@ runTask(readSensor); //启动RTOS线程（需要操作系统支持）
 
 NexusEJS追求确定性和透明性，因此我们的VM设计了：
 
-- READY TO FINALIZE对象保活延迟回收机制（可用于硬件控制对象保护）
+- 析构器保活机制（析构器可拒绝GC回收自身）
 - 并发原语与并发安全语法（采用M:N架构，支持虚拟线程&RTOS绑定层）
+- 支持模块感知GC，自动卸载无用字节码缓存和常量池缓存
 - 支持手动控制GC时机
 - 可定制和裁剪的VM功能
 - 平台无关且易于移植的VM核心
