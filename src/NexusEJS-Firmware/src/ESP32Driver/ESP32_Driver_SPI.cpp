@@ -33,6 +33,9 @@ struct SPIInstance {
   spi_device_handle_t device_handle;
   spi_host_device_t host;
   int cs_pin;
+  int mosi_pin;
+  int miso_pin;
+  int sclk_pin;
   int mode;
   int clock_speed;
   int bit_order;
@@ -201,6 +204,7 @@ void SPIObjectFuncTemplateInit() {
         return CreateBooleanVariable(true);
       });
 
+      /*
   // 只发送数据  write(payload : number | Buffer)
   SPIObjectFuncTemplate["write"] = VM::CreateSystemFunc(
       1,
@@ -265,6 +269,131 @@ void SPIObjectFuncTemplateInit() {
         }
         return CreateBooleanVariable(ret == ESP_OK);
       });
+
+      */
+
+  SPIObjectFuncTemplate["write"] = VM::CreateSystemFunc(
+    DYNAMIC_ARGUMENT,
+    [](std::vector<VariableValue>& args, VMObject* thisValue,
+       VMWorker* currentWorker) -> VariableValue {
+        uint32_t instanceId =
+            (uint32_t)thisValue->implement.objectImpl["_id"].content.number;
+
+        if (spiInstances.find(instanceId) == spiInstances.end()) {
+            currentWorker->ThrowError(
+                "SPI instance not initialized or already released");
+            return VariableValue();
+        }
+
+        if(args.size() <= 0){
+          currentWorker->ThrowError(
+                "argument.count must > 1");
+          return VariableValue();
+        }
+
+        SPIInstance& spi_inst = spiInstances[instanceId];
+        const uint8_t* tx_data = nullptr;
+        size_t data_len = 0;
+        uint8_t single_byte = 0;
+        bool is_single_byte = false;
+        
+        // 处理第一个参数
+        if (args[0].getContentType() == ValueType::NUM) {
+            // 单个字节
+            single_byte = (uint8_t)args[0].content.number;
+            tx_data = &single_byte;
+            data_len = 1;
+            is_single_byte = true;
+        } 
+        else if (args[0].getContentType() == ValueType::OBJECT) {
+            auto& obj = args[0].content.ref->implement.objectImpl;
+            if (obj.find("bufid") == obj.end()) {
+                currentWorker->ThrowError("Data must be a number or Buffer");
+                return VariableValue();
+            }
+            
+            uint32_t bufid = obj["bufid"].content.number;
+            auto bufinfo = GetByteBufferInfo(bufid);
+            
+            if (!bufinfo.data || bufinfo.length == 0) {
+                currentWorker->ThrowError("Invalid Buffer");
+                return VariableValue();
+            }
+            
+            size_t offset = 0;
+            size_t length = bufinfo.length;
+            
+            // 处理offset参数
+            if (args.size() >= 2) {
+                if (args[1].getContentType() != ValueType::NUM) {
+                    currentWorker->ThrowError("Offset must be a number");
+                    return VariableValue();
+                }
+                offset = (size_t)args[1].content.number;
+                if (offset >= bufinfo.length) {
+                    currentWorker->ThrowError("Offset out of range");
+                    return VariableValue();
+                }
+            }
+            
+            // 处理length参数
+            if (args.size() >= 3) {
+                if (args[2].getContentType() != ValueType::NUM) {
+                    currentWorker->ThrowError("Length must be a number");
+                    return VariableValue();
+                }
+                length = (size_t)args[2].content.number;
+                if (length == 0) {
+                    length = bufinfo.length - offset;
+                }
+                if (offset + length > bufinfo.length) {
+                    currentWorker->ThrowError("Length out of range");
+                    return VariableValue();
+                }
+            } else {
+                length = bufinfo.length - offset;
+            }
+            
+            tx_data = bufinfo.data + offset;
+            data_len = length;
+        } else {
+            currentWorker->ThrowError("Data must be a number or Buffer");
+            return VariableValue();
+        }
+        
+        if (data_len == 0) {
+            return CreateBooleanVariable(true);
+        }
+        
+        esp_err_t ret = ESP_OK;
+        
+        // 如果是单个字节或小数据，直接传输
+        if (data_len <= 4096) {
+            ret = spi_master_transmit(spi_inst.device_handle, tx_data, nullptr, data_len, 0);
+        } 
+        // 大数据分块传输
+        else {
+            const size_t CHUNK_SIZE = 4096;
+            for (size_t offset = 0; offset < data_len; offset += CHUNK_SIZE) {
+                size_t chunk_len = (data_len - offset) > CHUNK_SIZE ? 
+                                   CHUNK_SIZE : (data_len - offset);
+                
+                ret = spi_master_transmit(spi_inst.device_handle, 
+                                         tx_data + offset, 
+                                         nullptr, 
+                                         chunk_len, 0);
+                if (ret != ESP_OK) {
+                    break;
+                }
+            }
+        }
+        
+        if (ret != ESP_OK) {
+            printf("SPI write failed: 0x%x\n", ret);
+            return CreateBooleanVariable(false);
+        }
+        return CreateBooleanVariable(true);
+    });
 
   // 只接收数据 read(buf : Buffer,length : number)
   SPIObjectFuncTemplate["read"] = VM::CreateSystemFunc(
@@ -518,6 +647,208 @@ void ESP32_SPI_Init(VM* VMInstance) {
 
   SPIObjectFuncTemplateInit();
 
+  //初始化SPI主机 - 修改为支持两种调用方式
+spiClass->implement.objectImpl["init"] = VM::CreateSystemFunc(
+    DYNAMIC_ARGUMENT,
+    [](std::vector<VariableValue>& args, VMObject* thisValue,
+       VMWorker* currentWorker) -> VariableValue {
+        int bus_num, cs_pin, clock_speed, mode, bit_order, data_bits;
+        int mosi_pin = -1, miso_pin = -1, sclk_pin = -1;
+        
+        // 检查是否是对象参数（第一个参数是对象）
+        if (args.size() == 1 && args[0].getContentType() == ValueType::REF && 
+            args[0].content.ref != nullptr) {
+            // 对象参数模式
+            VMObject* configObj = args[0].content.ref;
+            auto& config = configObj->implement.objectImpl;
+            
+            // 从对象中读取必需参数
+            if (config.find("bus") == config.end() || config["bus"].getContentType() != ValueType::NUM ||
+                config.find("cs") == config.end() || config["cs"].getContentType() != ValueType::NUM) {
+                currentWorker->ThrowError("Object must contain 'bus' and 'cs' parameters");
+                return VariableValue();
+            }
+            
+            bus_num = (int)config["bus"].content.number;
+            cs_pin = (int)config["cs"].content.number;
+            
+            // 读取可选参数
+            clock_speed = config.find("clock_speed") != config.end() && 
+                         config["clock_speed"].getContentType() == ValueType::NUM ?
+                         (int)config["clock_speed"].content.number : 1000000;
+            if (config.find("frequency") != config.end() && 
+                config["frequency"].getContentType() == ValueType::NUM) {
+                clock_speed = (int)config["frequency"].content.number;
+            }
+            
+            mode = config.find("mode") != config.end() && 
+                  config["mode"].getContentType() == ValueType::NUM ?
+                  (int)config["mode"].content.number : 0;
+            
+            bit_order = config.find("bit_order") != config.end() && 
+                       config["bit_order"].getContentType() == ValueType::NUM ?
+                       (int)config["bit_order"].content.number : 0;
+            
+            data_bits = config.find("data_bits") != config.end() && 
+                       config["data_bits"].getContentType() == ValueType::NUM ?
+                       (int)config["data_bits"].content.number : 8;
+            
+            // 读取自定义引脚
+            if (config.find("mosi") != config.end() && 
+                config["mosi"].getContentType() == ValueType::NUM) {
+                mosi_pin = (int)config["mosi"].content.number;
+            }
+            if (config.find("miso") != config.end() && 
+                config["miso"].getContentType() == ValueType::NUM) {
+                miso_pin = (int)config["miso"].content.number;
+            }
+            if (config.find("sclk") != config.end() && 
+                config["sclk"].getContentType() == ValueType::NUM) {
+                sclk_pin = (int)config["sclk"].content.number;
+            }
+        } else {
+            // 原始6个参数模式
+            if (args[0].getContentType() != ValueType::NUM ||  // bus_num
+                args[1].getContentType() != ValueType::NUM ||  // cs_pin
+                args[2].getContentType() != ValueType::NUM ||  // clock_speed
+                args[3].getContentType() != ValueType::NUM ||  // mode
+                args[4].getContentType() != ValueType::NUM ||  // bit_order
+                args[5].getContentType() != ValueType::NUM) {  // data_bits
+                currentWorker->ThrowError(
+                    "Invalid argument type: expected (bus_num, cs_pin, clock_speed, "
+                    "mode, bit_order, data_bits) or config object");
+                return VariableValue();
+            }
+            
+            bus_num = (int)args[0].content.number;
+            cs_pin = (int)args[1].content.number;
+            clock_speed = (int)args[2].content.number;
+            mode = (int)args[3].content.number;
+            bit_order = (int)args[4].content.number;
+            data_bits = (int)args[5].content.number;
+        }
+
+        // 验证参数范围（保持原样）
+        if (bus_num != 1 && bus_num != 2) {
+            currentWorker->ThrowError("Bus number must be 1 (HSPI) or 2 (VSPI)");
+            return VariableValue();
+        }
+
+        if (clock_speed < 100000 || clock_speed > 80000000) {
+            currentWorker->ThrowError(
+                "Clock speed must be between 100KHz and 80MHz");
+            return VariableValue();
+        }
+
+        if (mode < NEXUS_SPI_MODE_0 || mode > NEXUS_SPI_MODE_3) {
+            currentWorker->ThrowError("Mode must be between 0 and 3");
+            return VariableValue();
+        }
+
+        if (data_bits != 8 && data_bits != 16 && data_bits != 32) {
+            currentWorker->ThrowError("Data bits must be 8, 16, or 32");
+            return VariableValue();
+        }
+
+        // 创建SPI对象
+        VMObject* spiObject =
+            currentWorker->VMInstance->currentGC->GC_NewObject(
+                ValueType::OBJECT);
+
+        spiObject->implement.objectImpl =
+            SPIObjectFuncTemplate;  // 拷贝对象模板过去
+
+        auto& objContainer = spiObject->implement.objectImpl;
+
+        // 分配实例ID
+        uint32_t instanceId = spiInstanceIdSeed++;
+        objContainer["_id"] = CreateNumberVariable((double)instanceId);
+        objContainer["bus"] = CreateNumberVariable(bus_num);
+        objContainer["cs"] = CreateNumberVariable(cs_pin);
+        objContainer["clock"] = CreateNumberVariable(clock_speed);
+        objContainer["mode"] = CreateNumberVariable(mode);
+        objContainer["bit_order"] = CreateNumberVariable(bit_order);
+        objContainer["data_bits"] = CreateNumberVariable(data_bits);
+
+        // 获取SPI主机
+        spi_host_device_t host = get_spi_host(bus_num);
+        
+        // 获取引脚：优先使用自定义，否则用默认
+        int default_mosi, default_miso, default_sclk;
+        get_spi_pins(host, &default_mosi, &default_miso, &default_sclk);
+        
+        if (mosi_pin == -1) mosi_pin = default_mosi;
+        if (miso_pin == -1) miso_pin = default_miso;
+        if (sclk_pin == -1) sclk_pin = default_sclk;
+        
+        // 保存引脚到对象
+        objContainer["mosi"] = CreateNumberVariable(mosi_pin);
+        objContainer["miso"] = CreateNumberVariable(miso_pin);
+        objContainer["sclk"] = CreateNumberVariable(sclk_pin);
+
+        // 初始化SPI总线配置
+        spi_bus_config_t bus_config = {};
+        bus_config.mosi_io_num = mosi_pin;
+        bus_config.miso_io_num = miso_pin;
+        bus_config.sclk_io_num = sclk_pin;
+        bus_config.quadwp_io_num = -1;
+        bus_config.quadhd_io_num = -1;
+        bus_config.max_transfer_sz = 4096;
+
+        // 初始化设备配置
+        spi_device_interface_config_t dev_config = {};
+        dev_config.mode = get_nexus_spi_mode(mode);
+        dev_config.clock_speed_hz = clock_speed;
+        dev_config.spics_io_num = cs_pin;
+        dev_config.queue_size = 7;
+
+        // 设置位序标志
+        if (bit_order == NEXUS_SPI_LSBFIRST) {
+            dev_config.flags =
+                SPI_DEVICE_TXBIT_LSBFIRST | SPI_DEVICE_RXBIT_LSBFIRST;
+        }
+
+        // 初始化SPI总线
+        esp_err_t ret = spi_bus_initialize(host, &bus_config, SPI_DMA_CH_AUTO);
+        if (ret != ESP_OK) {
+            char error_msg[100];
+            snprintf(error_msg, sizeof(error_msg),
+                    "Failed to initialize SPI bus: %d", ret);
+            currentWorker->ThrowError(
+                std::string(error_msg, error_msg + strlen(error_msg)));
+            return VariableValue();
+        }
+
+        // 添加设备到总线
+        spi_device_handle_t device_handle;
+        ret = spi_bus_add_device(host, &dev_config, &device_handle);
+        if (ret != ESP_OK) {
+            spi_bus_free(host);
+            char error_msg[100];
+            snprintf(error_msg, sizeof(error_msg), "Failed to add SPI device: %d",
+                    ret);
+            currentWorker->ThrowError(
+                std::string(error_msg, error_msg + strlen(error_msg)));
+            return VariableValue();
+        }
+
+        // 存储SPI实例
+        SPIInstance spi_inst = {.device_handle = device_handle,
+                                .host = host,
+                                .cs_pin = cs_pin,
+                                .mosi_pin = mosi_pin,
+                                .miso_pin = miso_pin,
+                                .sclk_pin = sclk_pin,
+                                .mode = mode,
+                                .clock_speed = clock_speed,
+                                .bit_order = bit_order,
+                                .data_bits = data_bits};
+        spiInstances[instanceId] = spi_inst;
+
+        return CreateReferenceVariable(spiObject);
+    });
+
+  /*
   // 初始化SPI主机
   spiClass->implement.objectImpl["init"] = VM::CreateSystemFunc(
       6,
@@ -647,6 +978,8 @@ void ESP32_SPI_Init(VM* VMInstance) {
 
         return CreateReferenceVariable(spiObject);
       });
+
+      */
 
   std::string spiClassName = "SPI";
   auto spiClassRef = CreateReferenceVariable(spiClass);

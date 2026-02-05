@@ -120,6 +120,48 @@ ByteBufferInfo GetByteBufferInfo(uint32_t bufid) {
 //初始化单例模板
 void InitByteBufferSingleFunc() {
 	
+// fill(val, offset, size)
+BufferObjTemplate["fill"] = VM::CreateSystemFunc(3, 
+    [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+        if (args[0].varType != ValueType::NUM || 
+            args[1].varType != ValueType::NUM || 
+            args[2].varType != ValueType::NUM) {
+            currentWorker->ThrowError("invaild argument");
+            return VariableValue();
+        }
+        
+        uint32_t id = (uint32_t)thisValue->implement.objectImpl["bufid"].content.number;
+        auto& info = bindedBytebuffer[id];
+        
+        // 参数提取
+        uint8_t fillValue = (uint8_t)args[0].content.number;  // 填充值
+        uint32_t offset = (uint32_t)args[1].content.number;   // 起始偏移
+        uint32_t size = (uint32_t)args[2].content.number;      // 填充大小
+        
+        // 边界检查
+        if (offset >= info.length) {
+            currentWorker->ThrowError("offset out of range");
+            return VariableValue();
+        }
+        
+        if (size == 0) {
+            // 大小为0，什么都不做
+            return VariableValue();
+        }
+        
+        // 计算实际要填充的大小
+        uint32_t actualSize = size;
+        if (offset + size > info.length) {
+            // 如果超出范围，只填充到末尾
+            actualSize = info.length - offset;
+        }
+        
+        // 使用memset进行填充
+        memset(info.data + offset, fillValue, actualSize);
+        
+        return VariableValue();
+    });
+
 	//readUInt(offset,size);
 	BufferObjTemplate["readUInt"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
 		if (args[0].varType != ValueType::NUM || args[1].varType != ValueType::NUM) {

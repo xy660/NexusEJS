@@ -21,7 +21,6 @@
 
 void setup()
 {
-
     
 
     ESP32_Platform_Init();

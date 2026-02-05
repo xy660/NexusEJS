@@ -124,7 +124,7 @@ const char* IOpCodeStr_DBG[] = {
 };
 
 void DumpFrame(VMWorker* worker) {
-	auto& callFrames = worker->getCallingLink();
+	auto& callFrames = worker->getCurrentCallingLink();
 	auto& currentFn = callFrames.back();
 	auto& currentScope = currentFn.scopeStack.back();
 
@@ -183,7 +183,7 @@ void DumpFrame(VMWorker* worker) {
 
 void DumpStack(VMWorker* worker) {
 	std::ostringstream stream;
-	auto& callFrames = worker->getCallingLink();
+	auto& callFrames = worker->getCurrentCallingLink();
 	for (int i = callFrames.size() - 1; i >= 0; i--) {
 		auto& fnFrame = callFrames[i];
 		stream << "callstk:";
@@ -415,12 +415,28 @@ void* DebuggerProc(void* param) {
 				else if (split[0] == "set_wrk") { //set_wrk <worker_id>
 					char* endPtr;
 					uint32_t worker_id = strtol(split[1].c_str(), &endPtr, 10);
+
+					bool found = false;
+					for(auto& worker : vm->workers){
+						if(worker->currentWorkerId == worker_id){
+							cur_breakPoint.worker = worker;
+							found = true;
+							break;
+						}
+					}
+
+					if(!found){
+						debuggerImpl.SendToDebugger("err:invaild worker_id");
+					}
+
+					/*
 					if (vm->tasks.find(worker_id) == vm->tasks.end()) {
 						debuggerImpl.SendToDebugger("err:invaild worker_id");
 					}
 					else {
 						cur_breakPoint.worker = vm->tasks[worker_id].worker;
 					}
+					*/
 				}
 			}
 
@@ -457,7 +473,7 @@ void Debugger_CheckPoint(VMWorker* worker, uint32_t eip, uint16_t packageId)
 	}
 	if (debuggerImpl.IsDebuggerConnected()) {
 
-		uint16_t nameStrId = worker->getCallingLink().back().functionInfo->funcNameStrId;
+		uint16_t nameStrId = worker->getCurrentCallingLink().back().functionInfo->funcNameStrId;
 		if (need_step_over.find(worker) != need_step_over.end() ||
 			NeedBreakPoint(nameStrId, eip, packageId)) {
 

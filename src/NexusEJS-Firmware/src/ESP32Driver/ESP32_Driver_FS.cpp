@@ -90,11 +90,8 @@ void File_ObjectFuncTemplateInit() {
           return VariableValue();
         }
         
-        // 移动文件指针
-        file.seek(offset, SeekSet);
-        
         // 读取数据
-        size_t bytesRead = file.read(buf_info.data, length);
+        size_t bytesRead = file.read(buf_info.data + offset, length);
         
         return CreateNumberVariable((double)bytesRead);
       });
@@ -105,8 +102,7 @@ void File_ObjectFuncTemplateInit() {
       [](std::vector<VariableValue>& args, VMObject* thisValue,
          VMWorker* currentWorker) -> VariableValue {
         if (args[0].getContentType() != ValueType::NUM ||
-            args[1].getContentType() != ValueType::NUM ||
-            (args[2].getContentType() != ValueType::OBJECT && args[2].getContentType() != ValueType::NUM)) {
+            args[1].getContentType() != ValueType::NUM) {
           currentWorker->ThrowError("Invalid argument type: expected (offset, length, data)");
           return VariableValue();
         }
@@ -122,8 +118,6 @@ void File_ObjectFuncTemplateInit() {
         size_t offset = (size_t)args[0].content.number;
         size_t length = (size_t)args[1].content.number;
         
-        // 移动文件指针
-        file.seek(offset, SeekSet);
         
         size_t bytesWritten = 0;
         
@@ -141,12 +135,25 @@ void File_ObjectFuncTemplateInit() {
               currentWorker->ThrowError("Invalid buffer");
               return VariableValue();
             }
+
+            if(offset + length > buf_info.length){
+              currentWorker->ThrowError("Buffer overflow");
+              return VariableValue();
+            }
             
-            bytesWritten = file.write(buf_info.data, length);
+            bytesWritten = file.write(buf_info.data + offset, length);
           } else {
             currentWorker->ThrowError("Invalid buffer object");
             return VariableValue();
           }
+        }else if(args[2].getContentType() == ValueType::STRING){
+          std::string& strData = args[2].content.ref->implement.stringImpl;
+          file.write((uint8_t*)&strData[0],strData.size());
+          bytesWritten = strData.size();
+        }
+        else{
+          currentWorker->ThrowError("not support content type");
+          return VariableValue();
         }
         
         return CreateNumberVariable((double)bytesWritten);
