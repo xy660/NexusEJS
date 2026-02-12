@@ -184,7 +184,7 @@ READY TO FINALIZE机制允许对象通过实现finalize() : boolean方法来控�
 
 ## 多任务
 
-NexusEJS的任务模型与标准Javascript不同，NexusEJS移除的事件循环，取而代之的是基于M:N架构的协程调度器，一个Task（操作系统线程）调度若干VT（虚拟线程）
+NexusEJS的任务模型与标准Javascript不同，NexusEJS移除的事件循环，取而代之的是基于M:N架构的纤程调度器，一个Task（操作系统线程）调度若干VT（虚拟线程）
 
 async和await关键字已被移除，但是可以通过`runTask(func,param) : TaskObject`方法创建任务，并获得一个`TaskObject`，可以通过：
 
@@ -192,7 +192,7 @@ async和await关键字已被移除，但是可以通过`runTask(func,param) : Ta
 - .isRunning() 获取任务是否正在运行
 - .getResult() 获取任务返回值，如果任务还在运行则返回null
 
-对于并发资源访问，需要使用上层RTOS提供的互斥锁临界区，当然NexusEJS提供了lock(obj){...}语法糖，示例：
+对于并发资源访问，需要使用上层OS提供的互斥锁临界区，当然NexusEJS提供了lock(obj){...}语法糖，示例：
 
 ```javascript
 
@@ -202,8 +202,20 @@ let sharedObject = {...};
 lock(sharedObject){
     //operation safe here
 }
+```
+
+如果是同一个线程内的两个虚拟线程之间的并发访问，请使用
+
+
+```javascript
+
+vtSetScheduleEnabled(true|false);
 
 ```
+
+暂停虚拟线程调度器的抢占，仅对当前的物理线程/OS线程内的虚拟线程之间有效
+
+
 
 Task默认栈大小是`8kb`并且在无OS环境不可用，因此可以使用虚拟线程：
 
@@ -238,6 +250,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
