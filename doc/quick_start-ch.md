@@ -184,7 +184,7 @@ READY TO FINALIZE机制允许对象通过实现finalize() : boolean方法来控�
 
 ## 多任务
 
-NexusEJS的任务模型与标准Javascript不同，NexusEJS移除的事件循环，取而代之的是基于M:N架构的纤程调度器，一个Task（操作系统线程）调度若干VT（虚拟线程）
+NexusEJS的任务模型与标准Javascript不同，NexusEJS移除的事件循环，取而代之的是基于M:N架构的虚拟线程调度器，一个Task（操作系统线程）调度若干VT（虚拟线程）
 
 async和await关键字已被移除，但是可以通过`runTask(func,param) : TaskObject`方法创建任务，并获得一个`TaskObject`，可以通过：
 
@@ -250,6 +250,7 @@ buf = null; //disconnect the reference
 gc(); //call gc to free the buffer
 
 ```
+
 
 
 
