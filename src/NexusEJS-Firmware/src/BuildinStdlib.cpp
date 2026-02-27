@@ -1036,6 +1036,8 @@ void VTAPI_Init() {
 		//if(args[0].content.boolean)
 		currentWorker->setVTScheduleEnabled(args[0].content.boolean);
 
+		return VariableValue();
+
 		});
 }
 
