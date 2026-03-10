@@ -805,25 +805,6 @@ namespace ScriptRuntime.Core
                 //清理可能出现的initPart定义变量
                 LocalVariableDefines.RemoveRange(enterPosition, LocalVariableDefines.Count - enterPosition);
 
-                /*
-                //展开为while循环格式，然后调用while循环进行处理
-                //for(init;codition;step){block}
-
-                ASTNode whileForBlock = new ASTNode(ASTNode.ASTNodeType.BlockCode, "", ast.line);
-                //编译初始化（要注意脱掉BlockCode包装，这里不需要额外作用域）
-                whileForBlock.Childrens.AddRange(ast.Childrens[0].Childrens);
-
-                whileForBlock.Childrens.Add(new ASTNode(ASTNode.ASTNodeType.WhileStatement, "", ast.line));
-
-                //获取while表达式的Node，即最后一个元素
-                int whileStatNodeIndex = whileForBlock.Childrens.Count - 1;
-
-                whileForBlock.Childrens[whileStatNodeIndex].Childrens.Add(ast.Childrens[1]); //条件
-                whileForBlock.Childrens[whileStatNodeIndex].Childrens.Add(new ASTNode(ASTNode.ASTNodeType.BlockCode, "", ast.line));
-                whileForBlock.Childrens[whileStatNodeIndex].Childrens[1].Childrens.Add(ast.Childrens[3]); //Block
-                whileForBlock.Childrens[whileStatNodeIndex].Childrens[1].Childrens.Add(ast.Childrens[2]); //步进
-                Compile(whileForBlock);
-                */
 
                 requireForEachChildren = false;
             }
@@ -1029,7 +1010,11 @@ namespace ScriptRuntime.Core
                 {
                     throw new CompileException(ast.line, $"\"{ast.Childrens[1].Raw}\" has already been declared");
                 }
+
+                int EnterLocalVariableSize = LocalVariableDefines.Count;
+
                 LocalVariableDefines.Add(ast.Childrens[1].Raw);
+
 
                 uint catchBlockOffset = (uint)(tryBlockOffset + tryBlock.Length + instructionSize[OpCode.JMP] + catchVarImplSize);
                 var (catchBlock, catchBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, catchBlockOffset)).Compile(ast.Childrens[2]);
@@ -1051,6 +1036,10 @@ namespace ScriptRuntime.Core
                 Emit(OpCode.POP); //弹出剩下的异常对象
                 ms.Write(catchBlock);
                 sb.AppendLine(catchBlockAsm);
+
+                //恢复变量栈
+                LocalVariableDefines.RemoveRange(EnterLocalVariableSize, LocalVariableDefines.Count - EnterLocalVariableSize);
+
 
                 requireForEachChildren = false;
             }
