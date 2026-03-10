@@ -15,6 +15,8 @@
 #include "BuildinStdlib.h"
 #include "StringConverter.h"
 
+#include <LittleFS.h>
+
 
 
 #include "ESP8266Driver/Esp8266Driver.h"
@@ -28,18 +30,6 @@ void CreatePWMObject(){
 void setup()
 {
     ESP8266_Platform_Init();
-    Serial.println("try construct");
-    wchar_t buf[32];
-    wchar_t* str = L"hello";
-    uint8_t* notalign = (uint8_t*)buf;
-    notalign += 1;
-    memcpy(notalign,str,sizeof(wchar_t) * 5);
-
-    std::wstring a((wchar_t*)notalign,5);
-    Serial.println("ok");
-
-    Serial.printf("%ls\n",a.c_str());
-    
 
     Serial.println("platform inited");
 
@@ -85,18 +75,35 @@ void setup()
 
     Serial.println("driver inited");
 
-    uint8_t packed[] = {120,121,120,121,16,0,0,0,3,0,0,0,97,0,114,0,114,0,4,0,0,0,112,0,117,0,115,0,104,0,1,0,0,0,105,0,1,0,0,0,116,0,3,0,0,0,103,0,101,0,116,0,7,0,0,0,112,0,114,0,105,0,110,0,116,0,108,0,110,0,2,0,0,0,105,0,61,0,12,0,0,0,102,0,105,0,98,0,32,0,116,0,101,0,115,0,116,0,32,0,102,0,105,0,98,0,3,0,0,0,102,0,105,0,98,0,5,0,0,0,108,0,105,0,103,0,104,0,116,0,3,0,0,0,99,0,110,0,116,0,4,0,0,0,71,0,112,0,105,0,111,0,3,0,0,0,115,0,101,0,116,0,5,0,0,0,100,0,101,0,108,0,97,0,121,0,2,0,0,0,103,0,99,0,9,0,0,0,103,0,99,0,32,0,99,0,97,0,108,0,108,0,101,0,100,0,3,0,102,0,105,0,98,0,1,1,0,116,0,215,0,0,0,21,209,0,0,0,0,27,0,0,42,27,0,0,45,39,30,27,1,0,46,30,25,0,0,0,0,0,0,240,63,33,1,24,25,0,0,0,0,0,0,240,63,33,1,24,40,24,21,137,0,0,0,0,27,2,0,42,27,2,0,45,25,0,0,0,0,0,0,0,64,40,24,21,112,0,0,0,1,27,2,0,45,27,3,0,45,17,32,98,0,0,0,21,60,0,0,0,0,27,0,0,45,27,1,0,46,27,0,0,45,27,4,0,46,27,2,0,45,25,0,0,0,0,0,0,240,63,1,33,1,27,0,0,45,27,4,0,46,27,2,0,45,25,0,0,0,0,0,0,0,64,1,33,1,0,33,1,24,27,2,0,45,30,25,0,0,0,0,0,0,240,63,0,40,25,0,0,0,0,0,0,240,63,1,24,31,144,255,255,255,27,0,0,45,27,4,0,46,27,3,0,45,25,0,0,0,0,0,0,240,63,1,33,1,34,10,0,109,0,97,0,105,0,110,0,95,0,101,0,110,0,116,0,114,0,121,0,0,43,1,0,0,21,37,1,0,0,0,21,108,0,0,0,0,27,2,0,42,27,2,0,45,25,0,0,0,0,0,0,20,64,40,24,21,83,0,0,0,1,27,2,0,45,25,0,0,0,0,0,0,73,64,15,32,64,0,0,0,21,36,0,0,0,0,27,5,0,45,27,6,0,27,2,0,45,0,33,1,24,27,5,0,45,27,7,0,27,8,0,45,27,2,0,45,33,1,0,33,1,24,27,2,0,45,30,25,0,0,0,0,0,0,20,64,0,40,24,31,173,255,255,255,27,9,0,42,27,9,0,45,28,0,40,24,27,10,0,42,27,10,0,45,25,0,0,0,0,0,0,0,0,40,24,21,142,0,0,0,1,28,1,32,135,0,0,0,27,9,0,45,27,9,0,45,5,40,24,27,11,0,45,27,12,0,46,27,9,0,45,25,0,0,0,0,0,0,0,64,33,2,24,27,13,0,45,25,0,0,0,0,0,64,127,64,33,1,24,27,10,0,45,30,25,0,0,0,0,0,0,240,63,0,40,25,0,0,0,0,0,0,240,63,1,24,27,10,0,45,25,0,0,0,0,0,0,36,64,4,25,0,0,0,0,0,0,0,0,13,32,23,0,0,0,21,17,0,0,0,0,27,14,0,45,33,0,24,27,5,0,45,27,15,0,33,1,24,31,114,255,255,255};
-    Serial.println("startting");
-    uint16_t packageId = vm.LoadPackedProgram(packed,sizeof(packed));
-    Serial.println("loaded funcs");
-
-    for(auto& func : vm.globalSymbols){
-        Serial.println(func.first.c_str());
+    if(!LittleFS.begin()){
+        Serial.println("LittleFS挂载失败");
+        return;
     }
+
+    File entryNejs = LittleFS.open("/entry.nejs","r");
+    if(!entryNejs){
+        Serial.println("Can not open the entry program");
+        return;
+    }
+
+    uint8_t* packed = (uint8_t*)malloc(entryNejs.size());
+    entryNejs.read(packed,entryNejs.size());
+    Serial.printf("read success,size=%d\n",entryNejs.size());
+    uint16_t packageId = vm.LoadPackedProgram(packed,entryNejs.size());
+
+    free(packed);
+
+    Serial.println("calling entrypoint...");
 
 
     std::string name = "main_entry";
     uint32_t start = millis();
+
+    Serial.printf("package_id=%d\n",packageId);
+    for(auto& func : vm.loadedPackages[packageId].bytecodeFunctions){
+        Serial.printf("Func:%s\n",func.first.c_str());
+    }
+    Serial.println("===end===");
     auto ret = vm.InitAndCallEntry(name,packageId);
 
     Serial.printf("time => %d\n",millis() - start);

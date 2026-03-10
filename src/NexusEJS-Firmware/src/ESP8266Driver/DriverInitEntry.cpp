@@ -8,11 +8,11 @@
 
 void ESP8266_Platform_Init(){
     Serial.begin(9600);
-    Serial.println("VM inited");
+    Serial.println("VM inited (esp8266)");
 
     
 
-    // 实现ESP8266 Arduino FreeRTOS平台的抽象层
+    // 实现ESP8266 Arduino Non-OS平台的抽象层
     platform.MemoryAlloc = [](size_t size)
     {
         void *memory = malloc(size);
@@ -76,7 +76,7 @@ void ESP8266_Platform_Init(){
     };
 
     platform.MemoryFreePercent = []() -> float {
-        return (float)0.1f;
+        return 1.0f - (ESP.getFreeHeap() / 81920.0);
     };
 }
 
@@ -92,7 +92,7 @@ void ESP8266_GpioClass_Init(VM* VMInstance){
         digitalWrite(pin,val);
         return VariableValue();
     });
-    gpioClass->implement.objectImpl["read"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
+    gpioClass->implement.objectImpl["read"] = VM::CreateSystemFunc(1,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
         if(args[0].getContentType() != ValueType::NUM){
             currentWorker->ThrowError("Gpio.read: pin must be number");
         }
@@ -102,24 +102,25 @@ void ESP8266_GpioClass_Init(VM* VMInstance){
     });
     //analogReadResolution(ANALOG_READ_RESOLUTION); //默认10bit分辨率
     //返回归一化的模拟量读取
-    gpioClass->implement.objectImpl["readAnalog"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
+    gpioClass->implement.objectImpl["readAnalog"] = VM::CreateSystemFunc(1,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
         if(args[0].getContentType() != ValueType::NUM){
             currentWorker->ThrowError("Gpio.read: pin must be number");
         }
         uint8_t pin = (uint8_t)args[0].content.number;
         pinMode(pin,INPUT);
+
         
-        return CreateNumberVariable((double)digitalRead(pin) / (double)ANALOG_READ_RESOLUTION);
+        return CreateNumberVariable((double)analogRead(pin) / (double)ANALOG_READ_RESOLUTION);
     });
     //返回原始数据的模拟量读取
-    gpioClass->implement.objectImpl["readAnalogRaw"] = VM::CreateSystemFunc(2,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
+    gpioClass->implement.objectImpl["readAnalogRaw"] = VM::CreateSystemFunc(1,[](std::vector<VariableValue>& args, VMObject* thisValue,VMWorker* currentWorker) -> VariableValue{
         if(args[0].getContentType() != ValueType::NUM){
             currentWorker->ThrowError("Gpio.read: pin must be number");
         }
         uint8_t pin = (uint8_t)args[0].content.number;
         pinMode(pin,INPUT);
         
-        return CreateNumberVariable(digitalRead(pin));
+        return CreateNumberVariable(analogRead(pin));
     });
     
 
