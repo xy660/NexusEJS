@@ -10,7 +10,7 @@
 
 
 #define LESS_MEMORY_TRIG_COLLECT 0.25f  //达到GC触发阈值的内存
-#define EMERGENCY_MEMORY_TRIG_COLLECT 0.10f //强制触发GC阈值，无视触发时间，设置为0表示禁用
+#define EMERGENCY_MEMORY_TRIG_COLLECT 0.1f //强制触发GC阈值，无视触发时间，设置为0表示禁用
 #define AUTO_GC_MIN_DELAY_MS 3000 //自动GC最小间隔
 #define GC_MAX_WAIT_STW_TIME 500
 
@@ -290,6 +290,14 @@ void GC::Internal_GC_Collect() {
 
 	prevGCTime = platform.TickCount32(); //更新上一次GC的时间
 
+	/*
+	uint32_t startTime = platform.TickCount32();
+	uint32_t startObjectCount = allObjects.size();
+
+	uint32_t timePosition = platform.TickCount32();
+	*/
+
+
 	StopTheWorld();
 
 	std::stack<VMObject*> dfsStack;
@@ -453,6 +461,19 @@ void GC::Internal_GC_Collect() {
 	}
 	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);
 
+	/*
+
+	printf("GCTime:%d ms\n", platform.TickCount32() - prevGCTime);
+
+	uint32_t protCount = 0;
+	for (auto obj : allObjects) {
+		if (obj->protectStatus == VMObject::PROTECTED) protCount++;
+	}
+
+	printf("protect count:%d\n", protCount);
+	*/
+
+	//清理完毕，恢复世界
 	ResumeTheWorld();
 
 #ifdef _DEBUG

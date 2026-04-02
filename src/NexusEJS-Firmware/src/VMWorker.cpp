@@ -963,27 +963,50 @@ VariableValue VMWorker::VMWorkerTask() {
 				if (arg.varType == ValueType::FUNCTION) {
 					//对可能逃逸的值函数进行闭包捕获
 					arg = __make_closure(arg, currentFn, this);
+					
+					/*
+					* 修复调用函数的时候临时闭包对象被杀
+					* 直接对栈上的闭包也直接替换上去
+					*/
+					currentFn->virtualStack[currentFn->virtualStack.size() - 1 - i] = arg;
+
 				}
 
 				arguments.push_back(arg);
 			}
 
+			/*
+			* 修复：
+			* 这里不能直接清除栈帧，否则调用函数过程中（尤其是Native函数）
+			* 将会导致参数被GC误杀
+			*/
+
+			/*
 			//弹出函数对象&参数
 			currentFn->virtualStack.resize(currentFn->virtualStack.size() - op_argCount - 1);
-
+			*/
 
 			if (funcInfo->type == ScriptFunction::Local) {
+				//字节码函数则调用前弹出参数
+				//因为字节码函数参数会被保存在被调用方供GC识别
+				//并且确保返回时栈是干净的
+				//返回值在后续由字节码函数被调用方压入
+				currentFn->virtualStack.resize(currentFn->virtualStack.size() - op_argCount - 1);
+
 				currentScope->ep += OpCode::instructionSize[op]; //接下来要改变栈帧了，代替循环尾部进行不进
 				funcInfo->InvokeFunc(arguments, funcRefVal->thisValue, closureObject, this);
 
 				continue;
 			}
 			else if (funcInfo->type == ScriptFunction::System) {
-				//currentGC->IgnoreWorkerCount_Inc(); //GC标记原生边界
-				auto funcResult = funcInfo->InvokeFunc(arguments, funcRefVal->thisValue, NULL, this);
-				//currentGC->IgnoreWorkerCount_Dec();
-				//如果原生函数未发生异常就压入返回值
 
+				auto funcResult = funcInfo->InvokeFunc(arguments, funcRefVal->thisValue, NULL, this);
+
+				//Native函数则是调用完成后才清理栈参数
+				//确保调用过程GC可识别
+				currentFn->virtualStack.resize(currentFn->virtualStack.size() - op_argCount - 1);
+
+				//如果原生函数未发生异常就压入返回值
 				if (!needResetLoop) {
 					if (funcResult.varType == ValueType::REF) {
 						funcResult.content.ref->protectStatus = VMObject::NOT_PROTECTED;

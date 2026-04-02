@@ -98,12 +98,6 @@ void setup()
 
     std::string name = "main_entry";
     uint32_t start = millis();
-
-    Serial.printf("package_id=%d\n",packageId);
-    for(auto& func : vm.loadedPackages[packageId].bytecodeFunctions){
-        Serial.printf("Func:%s\n",func.first.c_str());
-    }
-    Serial.println("===end===");
     auto ret = vm.InitAndCallEntry(name,packageId);
 
     Serial.printf("time => %d\n",millis() - start);

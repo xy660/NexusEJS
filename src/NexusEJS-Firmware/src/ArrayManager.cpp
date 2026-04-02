@@ -26,6 +26,7 @@ void ArraySymbolFuncAdd(std::string name,SystemFuncDef func,uint16_t argumentCou
 }
 
 static void __CallArrayCallback(VariableValue& callback,VariableValue& ArrayRef,VMWorker* worker,std::function<bool(VariableValue,uint32_t)> onResult) {
+    
     //创建临时worker
     VMWorker tempWorker(worker->VMInstance);
 
@@ -34,6 +35,12 @@ static void __CallArrayCallback(VariableValue& callback,VariableValue& ArrayRef,
     auto sfn = callback.content.ref->implement.closFuncImpl.sfn;
 
     for (size_t i = 0; i < array.size(); i++) {
+
+        //调试发现由于lambda可能很短无法触发VT上下文切换的顺带清除
+        //导致VT容器堆积很多已死亡VT，因为每次InvokeCallbackWithTempWorker都会在这个Worker创建VT
+        //所以每次都清空VT容器
+        tempWorker.getAllVTBlocks().clear();
+
         std::vector<VariableValue> callback_args;
         if (sfn->argumentCount == 1) {
             callback_args.push_back(array[i]);
