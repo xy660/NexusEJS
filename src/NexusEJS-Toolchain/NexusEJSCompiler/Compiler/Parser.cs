@@ -487,20 +487,33 @@ namespace ScriptRuntime.Core
                         throw new SyntaxException("if语句后条件表达式错误", ifSyntax);
                     }
                     ASTNode astIfStat = new ASTNode(ASTNode.ASTNodeType.IfStatement, string.Empty, key.line);
+                    //synAST构建if(条件)的条件语句
                     var synAST = BuildASTByTokens(SplitTokens(ifSyntax.raw,ifSyntax.line));
                     if (synAST.Childrens.Count != 1)
                     {
                         throw new SyntaxException("if条件语句歧义", ifSyntax);
                     }
                     astIfStat.Childrens.Add(synAST.Childrens[0]);
+                    //判断是否是简写if链
                     if (PeekToken().tokenType != TokenType.CodeBlock)
                     {
+                        //下一条表达式
                         var syn = new ASTNode(ASTNode.ASTNodeType.BlockCode, string.Empty, key.line);
                         syn.Childrens.Add(ProcessOperation(PowerToOperators.Count - 1));
                         astIfStat.Childrens.Add(syn);
+
+                        //26.6.21问题：如果单表达式if末尾存在分号会导致else链不正确
+                        //修复方式：消费掉多余的EOF(;) Token
+
+                        while (PeekToken().tokenType == TokenType.EOF && _pos < ASTParseStream.Count) 
+                        {
+                            PollToken(); 
+                        }
+
                     }
                     else
                     {
+                        //读取下一个大括号代码块作为body
                         var eqPart = PollToken();
                         astIfStat.Childrens.Add(BuildASTByTokens(SplitTokens(eqPart.raw,eqPart.line)));
                     }

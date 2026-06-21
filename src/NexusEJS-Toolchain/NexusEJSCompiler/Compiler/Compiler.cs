@@ -14,7 +14,7 @@ namespace ScriptRuntime.Core
     {
         public uint line;
         public string message;
-        public CompileException(uint line, string message) : base($"{message} line:{line}") 
+        public CompileException(uint line, string message) : base($"{message} line:{line}")
         {
             this.line = line;
             this.message = message;
@@ -32,7 +32,7 @@ namespace ScriptRuntime.Core
         public ushort[] outsizeSymbolsId;
         public string asm;
 
-        public FunctionInfo(string name,string[] arguments, List<(uint offset, uint line)> mapper, byte[] bytecode, ushort[] outsizeSym,string asm)
+        public FunctionInfo(string name, string[] arguments, List<(uint offset, uint line)> mapper, byte[] bytecode, ushort[] outsizeSym, string asm)
         {
             this.name = name;
             this.arguments = arguments;
@@ -411,7 +411,7 @@ namespace ScriptRuntime.Core
         }
 
         //将字节码数据链接成一个可执行包
-        public static byte[] PackFunction(string packageName,List<string> ConstStringPool, Dictionary<string, FunctionInfo> functions)
+        public static byte[] PackFunction(string packageName, List<string> ConstStringPool, Dictionary<string, FunctionInfo> functions)
         {
             //[magic]
             //[ushort版本号]
@@ -429,7 +429,7 @@ namespace ScriptRuntime.Core
 
                 //写入版本号
                 ms.Write(BitConverter.GetBytes(Version));
-                
+
                 //写入包名
                 var packageNameData = Encoding.UTF8.GetBytes(packageName);
                 ms.Write(BitConverter.GetBytes((ushort)packageNameData.Length));
@@ -437,7 +437,7 @@ namespace ScriptRuntime.Core
 
                 //写入常量字符串表
                 ms.Write(BitConverter.GetBytes(ConstStringPool.Count));
-                foreach(var cstr in ConstStringPool)
+                foreach (var cstr in ConstStringPool)
                 {
                     var strData = Encoding.UTF8.GetBytes(cstr);
                     ms.Write(BitConverter.GetBytes(strData.Length));
@@ -456,7 +456,7 @@ namespace ScriptRuntime.Core
                     }
                     //写入外部符号表
                     ms.Write(BitConverter.GetBytes((ushort)func.Value.outsizeSymbolsId.Length));
-                    foreach(var outSymId in func.Value.outsizeSymbolsId)
+                    foreach (var outSymId in func.Value.outsizeSymbolsId)
                     {
                         ms.Write(BitConverter.GetBytes(outSymId));
                     }
@@ -634,9 +634,9 @@ namespace ScriptRuntime.Core
                 //隔离编译
 
                 var trueBlockOffset = baseOffset + ms.Position + instructionSize[OpCode.JMP_IF_FALSE];
-                var (compTrue, asmTrue) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)trueBlockOffset)).Compile(trueBlock);
+                var (compTrue, asmTrue) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, (uint)trueBlockOffset)).Compile(trueBlock);
                 var falseBlockOffset = (uint)(trueBlockOffset + compTrue.Length + instructionSize[OpCode.JMP]);
-                (byte[]? compFalse, string? asmFalse) = falseBlock == null ? (null, null) : new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, falseBlockOffset)).Compile(falseBlock);
+                (byte[]? compFalse, string? asmFalse) = falseBlock == null ? (null, null) : new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, falseBlockOffset)).Compile(falseBlock);
 
                 //如果有else块在true块后面就有一个跳过指令
                 //这个跳过指令包含1字节头+8字节地址=9字节，需要考虑
@@ -680,9 +680,9 @@ namespace ScriptRuntime.Core
                 var block = ast.Childrens[1];
 
                 var coditionOffset = (uint)(baseOffset + ms.Position + instructionSize[OpCode.SCOPE_PUSH]);
-                var (coditionCode, coditionAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, coditionOffset)) { scopeCommand = false }.Compile(codition);
+                var (coditionCode, coditionAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, coditionOffset)) { scopeCommand = false }.Compile(codition);
                 var blockCodeOffset = (uint)(coditionOffset + coditionCode.Length + instructionSize[OpCode.JMP_IF_FALSE]);
-                var (blockCode, blockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines ,OffsetLineMapper, blockCodeOffset)) { scopeCommand = false }.Compile(block);
+                var (blockCode, blockAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, blockCodeOffset)) { scopeCommand = false }.Compile(block);
 
                 //[SCOPE_PUSH(TotalSize)]  SCOPE_PUSH的大小不包含自己的大小
                 //  [CODITION]
@@ -698,7 +698,7 @@ namespace ScriptRuntime.Core
                 totalSize += instructionSize[OpCode.JMP];
 
                 //进入作用域
-                Emit(OpCode.SCOPE_PUSH ,totalSize , ScopeType.BREAK);
+                Emit(OpCode.SCOPE_PUSH, totalSize, ScopeType.BREAK);
 
                 ms.Write(coditionCode);
                 sb.Append(coditionAsm);
@@ -713,7 +713,7 @@ namespace ScriptRuntime.Core
                 int whileBodyScopeSize = blockCode.Length;
 
                 //内层循环体代码独立作用域可跳出
-                Emit(OpCode.SCOPE_PUSH, whileBodyScopeSize,ScopeType.CONTINUE);
+                Emit(OpCode.SCOPE_PUSH, whileBodyScopeSize, ScopeType.CONTINUE);
 
                 ms.Write(blockCode);
                 sb.Append(blockAsm);
@@ -799,7 +799,7 @@ namespace ScriptRuntime.Core
                 //fix: 创造一个大作用域包裹，这样initPart不会泄露
                 Emit(OpCode.SCOPE_PUSH, (int)forStatCompiler.ms.Length);
                 //将暂存的字节码Emit到主存储区
-                ms.Write(forStatCompiler.ms.ToArray()); 
+                ms.Write(forStatCompiler.ms.ToArray());
                 sb.Append(forStatCompiler.sb);
 
                 //清理可能出现的initPart定义变量
@@ -822,7 +822,7 @@ namespace ScriptRuntime.Core
                 //和其他方法仅共享常量池不共享offset记录和局部变量
                 List<string> functionVariables = new List<string>();
                 functionVariables.AddRange(args);
-                var comp = new Compiler(new CompilationContext(ConstString,functionVariables, new List<(uint offset, uint line)>(), 0));
+                var comp = new Compiler(new CompilationContext(ConstString, functionVariables, new List<(uint offset, uint line)>(), 0));
                 var (byteCode, asm) = comp.Compile(ast.Childrens.Last());
                 var InnerConstString = comp.ConstString;
 
@@ -832,12 +832,12 @@ namespace ScriptRuntime.Core
                 //计算外部符号依赖
                 var outsideSymbol = OutsideSymbolDetector.DetectOutletSymbol(ast);
                 List<ushort> outsizeSymIds = new List<ushort>();
-                foreach(var sym in outsideSymbol)
+                foreach (var sym in outsideSymbol)
                 {
                     outsizeSymIds.Add(GetOrCreateConstStringId(sym));
                 }
 
-                functions.Add(funcName, new FunctionInfo(funcName, args, offsetMapper, byteCode,outsizeSymIds.ToArray() , asm));
+                functions.Add(funcName, new FunctionInfo(funcName, args, offsetMapper, byteCode, outsizeSymIds.ToArray(), asm));
                 //functions.Add(funcName, (args, comp.ms.ToArray(),offsetMapper, comp.sb.ToString()));
 
                 if (ast.Raw == string.Empty) //如果是匿名函数，压入栈作为值传递
@@ -850,7 +850,7 @@ namespace ScriptRuntime.Core
                     //普通函数在当前这里生成一个let <Name> = <Name>形成闭包
                     Emit(OpCode.PUSH_STR, funcName);
                     Emit(OpCode.LOAD_VAR);
-                    Emit(OpCode.STORE_LOCAL,funcName);
+                    Emit(OpCode.STORE_LOCAL, funcName);
                     if (LocalVariableDefines.Contains(funcName))
                     {
                         throw new CompileException(ast.line, $"\"{funcName}\" has already been declared");
@@ -1000,11 +1000,11 @@ namespace ScriptRuntime.Core
                 catchVarImplSize += instructionSize[OpCode.STORE_LOCAL];
                 catchVarImplSize += instructionSize[OpCode.POP];
 
-                
+
 
                 //[TRY_ENTER(TRYBLOCK.length + JMP.length)][TRYBLOCK][JMP(CATCH.length + [加载指令].length)][(加载指令)][CATCH];
                 uint tryBlockOffset = (uint)(baseOffset + ms.Position + instructionSize[OpCode.TRY_ENTER]);
-                var (tryBlock, tryBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, tryBlockOffset)).Compile(ast.Childrens[0]);
+                var (tryBlock, tryBlockAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, tryBlockOffset)).Compile(ast.Childrens[0]);
 
                 if (LocalVariableDefines.Contains(ast.Childrens[1].Raw))
                 {
@@ -1017,7 +1017,7 @@ namespace ScriptRuntime.Core
 
 
                 uint catchBlockOffset = (uint)(tryBlockOffset + tryBlock.Length + instructionSize[OpCode.JMP] + catchVarImplSize);
-                var (catchBlock, catchBlockAsm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, catchBlockOffset)).Compile(ast.Childrens[2]);
+                var (catchBlock, catchBlockAsm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, catchBlockOffset)).Compile(ast.Childrens[2]);
                 //标记try块大小，最后那个JMP指令也算在try块
                 Emit(OpCode.TRY_ENTER, tryBlock.Length + instructionSize[OpCode.JMP]);
                 ms.Write(tryBlock);
@@ -1031,7 +1031,7 @@ namespace ScriptRuntime.Core
                 Emit(OpCode.SCOPE_PUSH, catchBlock.Length + catchVarImplSize - instructionSize[OpCode.SCOPE_PUSH]);
                 Emit(OpCode.STORE_LOCAL, ast.Childrens[1].Raw); //直接存入
 
-                
+
 
                 Emit(OpCode.POP); //弹出剩下的异常对象
                 ms.Write(catchBlock);
@@ -1117,11 +1117,11 @@ namespace ScriptRuntime.Core
                 //记录当前的局部变量栈位置
                 int enterPosition = LocalVariableDefines.Count;
 
-                var blockBytecode = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, currentOffset)); //这个compiler用来存储并进行最终局部变量清理
+                var blockBytecode = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, currentOffset)); //这个compiler用来存储并进行最终局部变量清理
                 foreach (var expr in ast.Childrens)
                 {
                     //单独编译每一条语句，对语句进行栈平衡
-                    var (bytecode, asm) = new Compiler(new CompilationContext(ConstString,LocalVariableDefines, OffsetLineMapper, (uint)(currentOffset + blockBytecode.ms.Length))).Compile(expr);        
+                    var (bytecode, asm) = new Compiler(new CompilationContext(ConstString, LocalVariableDefines, OffsetLineMapper, (uint)(currentOffset + blockBytecode.ms.Length))).Compile(expr);
                     blockBytecode.ms.Write(bytecode); //存入最终筛选
                     blockBytecode.sb.AppendLine(asm);
                     StackBalance(blockBytecode);
@@ -1166,7 +1166,7 @@ namespace ScriptRuntime.Core
             else if (ast.NodeType == ASTNode.ASTNodeType.VariableDefination) //local变量创建
             {
                 //Emit(OpCode.PUSH_STR, ast.Raw);
-                Emit(OpCode.DEF_LOCAL,ast.Raw);
+                Emit(OpCode.DEF_LOCAL, ast.Raw);
 
                 if (LocalVariableDefines.Contains(ast.Raw))
                 {
@@ -1213,7 +1213,7 @@ namespace ScriptRuntime.Core
                 Emit(OpCode.THROW);
             }
 
-            
+
 
             return (ms.ToArray(), sb.ToString());
         }
