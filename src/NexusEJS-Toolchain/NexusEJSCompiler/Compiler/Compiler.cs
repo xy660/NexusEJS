@@ -45,7 +45,7 @@ namespace ScriptRuntime.Core
 
     class Compiler
     {
-        public static ushort Version = 5;
+        public static ushort Version = 6;
         enum OpCode
         {
             //运算符
@@ -58,6 +58,10 @@ namespace ScriptRuntime.Core
             // 单目运算符，弹出一个对象运算压回去
             NOT,    // 逻辑非
             NEG,    // 取负
+            INC_L,    //对栈顶的数字自增然后修改为自增后的值
+            DEC_L, 
+            INC_R,  //返回老值
+            DEC_R,
 
             // 位运算符
             BIT_AND,    // 按位与
@@ -188,6 +192,10 @@ namespace ScriptRuntime.Core
     { OpCode.MUL, -1 },
     { OpCode.DIV, -1 },
     { OpCode.MOD, -1 },
+    { OpCode.INC_L, 0 },
+    { OpCode.DEC_L, 0 },
+    { OpCode.INC_R, 0 },
+    { OpCode.DEC_R, 0 },
     { OpCode.BIT_AND, -1 },
     { OpCode.BIT_OR, -1 },
     { OpCode.BIT_XOR, -1 },
@@ -261,6 +269,10 @@ namespace ScriptRuntime.Core
     { OpCode.MOD, 1 },
     { OpCode.NOT, 1 },
     { OpCode.NEG, 1 },
+    { OpCode.INC_L, 1 },
+    { OpCode.DEC_L, 1 },
+    { OpCode.INC_R, 1 },
+    { OpCode.DEC_R, 1 },
     { OpCode.BIT_AND, 1 },
     { OpCode.BIT_OR, 1 },
     { OpCode.BIT_XOR, 1 },
@@ -882,17 +894,25 @@ namespace ScriptRuntime.Core
                 Compile(ast.Childrens[0]);
                 if (ast.Raw == "++")
                 {
+                    /*
                     Emit(OpCode.DUP_PUSH);
                     Emit(OpCode.PUSH_NUM, (double)1);
                     Emit(OpCode.ADD);
                     Emit(OpCode.STORE); //先弹出右侧再弹出左侧
+                    */
+
+                    Emit(OpCode.INC_L);
                 }
                 else if (ast.Raw == "--")
                 {
+                    /*
                     Emit(OpCode.DUP_PUSH);
                     Emit(OpCode.PUSH_NUM, (double)1);
                     Emit(OpCode.SUB);
                     Emit(OpCode.STORE); //先弹出右侧再弹出左侧
+                    */
+
+                    Emit(OpCode.DEC_L);
                 }
                 else if (ast.Raw == "!")
                 {
@@ -911,11 +931,14 @@ namespace ScriptRuntime.Core
             else if (ast.NodeType == ASTNode.ASTNodeType.LeftUnaryOperation)
             {
                 Compile(ast.Childrens[0]);
+                //返回自增前的值
+                /*
                 Emit(OpCode.DUP_PUSH);
                 if (ast.Raw == "++")
                 {
+                    
                     Emit(OpCode.PUSH_NUM, (double)1);
-                    Emit(OpCode.ADD);
+                    Emit(OpCode.ADD);       
                 }
                 else if (ast.Raw == "--")
                 {
@@ -925,6 +948,17 @@ namespace ScriptRuntime.Core
                 Emit(OpCode.STORE); //先弹出右侧再弹出左侧
                 Emit(OpCode.PUSH_NUM, (double)1);
                 Emit(OpCode.SUB); //弹出老结果
+
+                */
+
+                if(ast.Raw == "++")
+                {
+                    Emit(OpCode.INC_R);
+                }
+                else if(ast.Raw == "--")
+                {
+                    Emit(OpCode.DEC_R);
+                }
 
                 requireForEachChildren = false;
             }
