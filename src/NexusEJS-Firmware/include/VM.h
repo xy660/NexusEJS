@@ -1,14 +1,14 @@
 #pragma once
 
-#define VM_VERSION_NUMBER 5
+#define VM_VERSION_NUMBER 6
 
-#define VM_VERSION_STR "V1.5.0"
+#define VM_VERSION_STR "V1.5.1"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
 #define VM_DEBUGGER_ENABLED 0
 
-#define VT_SCHED_INSTRUCTION_CNT 100
+#define VT_SCHED_INSTRUCTION_CNT 1000
 #define VT_SCHED_IDLE_SLEEP_TIME_MS 10
 
 #include <memory>

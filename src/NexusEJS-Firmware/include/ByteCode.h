@@ -49,6 +49,10 @@ public:
         // 单目运算符，弹出一个对象运算压回去
         NOT,    // 逻辑非
         NEG,    // 取负
+        INC_L,
+        DEC_L,
+        INC_R,
+        DEC_R,
 
         // 位运算符
         BIT_AND,    // 按位与

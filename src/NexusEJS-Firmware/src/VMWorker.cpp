@@ -92,6 +92,10 @@ const char* IOpCodeStr[] = {
 	// 单目运算符，弹出一个对象运算压回去
 	"NOT",    // 逻辑非
 	"NEG",    // 取负
+	"INC_L",
+	"DEC_L",
+	"INC_R",
+	"DEC_R",
 
 	// 位运算符
 	"BIT_AND",    // 按位与
@@ -720,6 +724,34 @@ VariableValue VMWorker::VMWorkerTask() {
 			res.content.number = -target->content.number;
 			currentFn->virtualStack.pop_back();
 			currentFn->virtualStack.push_back(res);
+			break;
+		}
+		case OpCode::INC_L:
+		{
+			//原地修改元素
+			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
+			double res = ++(target->content.number);
+			break;
+		}
+		case OpCode::DEC_L:
+		{
+			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
+			double res = --(target->content.number);
+			break;
+		}
+		case OpCode::INC_R:
+		{
+			//返回修改前的元素（解引用Bridge后了，避免视图不正确）
+			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
+			double res = target->content.number++;
+			currentFn->virtualStack.back() = CreateNumberVariable(res);
+			break;
+		}
+		case OpCode::DEC_R:
+		{
+			VariableValue* target = currentFn->virtualStack.back().getRawVariable();
+			double res = target->content.number--;
+			currentFn->virtualStack.back() = CreateNumberVariable(res);
 			break;
 		}
 		case OpCode::BIT_AND:

@@ -8,6 +8,10 @@ uint8_t OpCode::instructionSize[] = {
     1,  // MOD
     1,  // NOT
     1,  // NEG
+    1,  // INC_L
+    1,  // DEC_L
+    1,  // INC_R
+    1,  // DEC_R
     1,  // BIT_AND
     1,  // BIT_OR
     1,  // BIT_XOR
