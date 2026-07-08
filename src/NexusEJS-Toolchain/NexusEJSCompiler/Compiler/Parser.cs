@@ -254,6 +254,13 @@ namespace ScriptRuntime.Core
                 }
                 return retnAST;
             }
+            else if (val.raw == "new")
+            {
+                var func = ProcessNewExpression();
+                var ast = new ASTNode(ASTNode.ASTNodeType.NewStatement, string.Empty, val.line);
+                ast.Childrens.Add(func);
+                return ast;
+            }
             else if(val.raw == "var")
             {
                 throw new SyntaxException("不支持var，请使用let或global声明变量",val);
@@ -293,13 +300,6 @@ namespace ScriptRuntime.Core
                 ast.Childrens.Add(syntax);
                 return ast;
             }
-            else if(val.raw == "async") //创建异步任务
-            {
-                var func = ProcessLogicStatement();
-                var ast = new ASTNode(ASTNode.ASTNodeType.AsyncStatement, string.Empty, val.line);
-                ast.Childrens.Add(func);
-                return ast;
-            }
             else if(val.raw == "lock") //同步块锁代码
             {
                 var lockObj = PollToken();
@@ -325,6 +325,35 @@ namespace ScriptRuntime.Core
                 return new ASTNode(ASTNode.ASTNodeType.Identifier, val.raw,val.line);
             }
         }
+
+        
+        //给new关键字专用的解析分支
+        static ASTNode ProcessNewExpression()
+        {
+            var left = ProcessPrimaryExpression();
+
+            if (PeekToken().tokenType == TokenType.Part)
+            {
+                var funcAST = new ASTNode(ASTNode.ASTNodeType.CallFunction, string.Empty, PeekToken().line);
+                funcAST.Childrens.Add(left);
+                var argsToken = PollToken();
+                var args = StringUtils.SplitArgSyntax(argsToken.raw, argsToken.line);
+                uint argsTokenLine = argsToken.line;
+                foreach (var arg in args)
+                {
+                    var argAST = BuildASTByTokens(SplitTokens(arg.raw, arg.line));
+                    if (argAST.Childrens.Count != 1)
+                    {
+                        throw new SyntaxException("函数调用参数内出现多重解析的表达式", argsToken);
+                    }
+                    funcAST.Childrens.Add(argAST.Childrens[0]);
+                }
+                left = funcAST;
+            }
+
+            return left;
+        }
+        
 
         //成员访问
         static ASTNode ProcessMemberAccess()
@@ -806,6 +835,7 @@ namespace ScriptRuntime.Core
             AsyncStatement,
             ThrowStatement,
             LockStatement,
+            NewStatement,
         }
 
         public ASTNodeType NodeType;

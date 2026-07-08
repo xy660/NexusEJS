@@ -119,10 +119,18 @@ static class StringUtils
         Stack<char> bracketStack = new Stack<char>(); //括号平衡栈
         bool inString = false;
         StringBuilder sb = new StringBuilder();
-        var ret = new List<Token>();
+        var result = new List<Token>();
         uint line = lineBase;
         uint prev = line;
         bool needRecPrev = false;
+
+        //移除前导和后导空格
+        var retAddRemovePad = (Token tok) =>
+        {
+            tok.raw = tok.raw.Trim();
+            result.Add(tok);
+        };
+
         for (int i = 0; i < raw.Length; i++)
         {
             if (needRecPrev && raw[i] != '\n' && raw[i] != '\r')
@@ -143,7 +151,7 @@ static class StringUtils
                     }
                 }
                 
-                ret.Add(new Token(token, TokenType.Idfefinder) { line = (uint)(prev + headLineCount) });
+                retAddRemovePad(new Token(token, TokenType.Idfefinder) { line = (uint)(prev + headLineCount) });
                 prev = line;
                 sb.Clear();
             }
@@ -182,9 +190,9 @@ static class StringUtils
             }
         }
         if (sb.Length > 0)
-            ret.Add(new Token(sb.ToString(), TokenType.Idfefinder) { line = prev });
+            retAddRemovePad(new Token(sb.ToString(), TokenType.Idfefinder) { line = prev });
 
-        return ret;
+        return result;
     }
 
 

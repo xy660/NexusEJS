@@ -45,7 +45,7 @@ namespace ScriptRuntime.Core
 
     class Compiler
     {
-        public static ushort Version = 6;
+        public static ushort Version = 7;
         enum OpCode
         {
             //运算符
@@ -124,6 +124,7 @@ namespace ScriptRuntime.Core
             GET_FIELD, //获取对象属性值，一个桥接VariableValue(type=BRIDGE)指向成员VariableValue的指针
                        //GET_FIELD返回的VariableValue，obj.sub中，sub的值是 get_field.bridge->ref
                        //STORE指令需要判断一下是不是桥接类型
+            GET_FIELD_ASS, //赋值所用的FIELD，不走原型链查找，自动创建新值
 
             //常量池使用
             CONST_STR, //字符串常量,Unicode表示;指令结构：（1byte头+4byte长度+内容）
@@ -178,10 +179,6 @@ namespace ScriptRuntime.Core
     {">>", OpCode.SHR}
     };
 
-        Dictionary<string, OpCode> UnaryOpMapper = new Dictionary<string, OpCode>()
-        {
-
-        };
 
         // 栈净影响（正数表示增长，负数表示减少，0表示不变）
         Dictionary<OpCode, int> stackNetEffect = new Dictionary<OpCode, int>
@@ -253,6 +250,7 @@ namespace ScriptRuntime.Core
     {OpCode.NEW_ARR,1 },
     {OpCode.NEW_OBJ,1 },
     {OpCode.GET_FIELD,-1 }, //弹出一个字符串+一个对象，然后压入新的prop
+    {OpCode.GET_FIELD_ASS,-1 }, //弹出一个字符串+一个对象，然后压入新的prop
 
     {OpCode.CONST_STR,0 },
 
@@ -315,6 +313,7 @@ namespace ScriptRuntime.Core
     { OpCode.DEL_DEF, 1 },
     { OpCode.LOAD_VAR, 1 },
     { OpCode.GET_FIELD,1 },
+    { OpCode.GET_FIELD_ASS,1 },
     { OpCode.NEW_ARR,1 },
     { OpCode.NEW_OBJ,1 },
 };
@@ -385,6 +384,9 @@ namespace ScriptRuntime.Core
         public List<string> ConstString = new List<string>();
 
         public List<string> LocalVariableDefines = new List<string>();
+
+        //正在编译赋值左表达式
+        private bool CompilingAssignmentLeft = false;
 
         //编译出来的方法体
         public static Dictionary<string, FunctionInfo> functions = new();
@@ -670,7 +672,9 @@ namespace ScriptRuntime.Core
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.Assignment) //赋值
             {
+                CompilingAssignmentLeft = true;
                 Compile(ast.Childrens[0]); //运行左侧让引用/值存储到栈
+                CompilingAssignmentLeft = false;
                 if (ast.Raw != "=") //如果是类似x+=N这种复合赋值的话，拆成x=x+N编译
                 {
                     //取第一个作为运算符
@@ -999,7 +1003,7 @@ namespace ScriptRuntime.Core
                 for (int i = 0; i < ast.Childrens.Count; i++)
                 {
                     Emit(OpCode.PUSH_STR, ast.Childrens[i].Childrens[0].Raw);
-                    Emit(OpCode.GET_FIELD);
+                    Emit(OpCode.GET_FIELD_ASS); //采用写入的方式插入
                     Compile(ast.Childrens[i].Childrens[1]); //编译value然后存储
                     Emit(OpCode.STORE);
                     Emit(OpCode.POP); //抛弃赋值的返回值
@@ -1022,7 +1026,14 @@ namespace ScriptRuntime.Core
             {
                 Compile(ast.Childrens[0]); //编译要访问的表达式
                 Emit(OpCode.PUSH_STR, ast.Childrens[1].Raw);
-                Emit(OpCode.GET_FIELD);
+                if (CompilingAssignmentLeft)
+                {
+                    Emit(OpCode.GET_FIELD_ASS);
+                }
+                else
+                {
+                    Emit(OpCode.GET_FIELD);
+                }
 
                 requireForEachChildren = false;
             }
@@ -1141,6 +1152,27 @@ namespace ScriptRuntime.Core
                 Compile(transNode);
 
                 requireForEachChildren = false;
+            }
+            else if(ast.NodeType == ASTNode.ASTNodeType.NewStatement)
+            {
+                //new Obj(1,2) => __new__(Obj,1,2)
+
+                if (ast.Childrens[0].NodeType != ASTNode.ASTNodeType.CallFunction)
+                {
+                    throw new CompileException(ast.line, "无效的new语句");
+                }
+
+                ASTNode transNode = new ASTNode(ASTNode.ASTNodeType.CallFunction, "", ast.line);
+                transNode.Childrens.Add(new ASTNode(ASTNode.ASTNodeType.Identifier, "__new__", ast.line));
+                foreach(var node in ast.Childrens[0].Childrens)
+                {
+                    transNode.Childrens.Add(node);
+                }
+
+                Compile(transNode);
+
+                requireForEachChildren = false;
+
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.BlockCode) //花括号作用域块
             {
