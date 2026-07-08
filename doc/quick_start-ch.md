@@ -90,14 +90,27 @@ NexusEJS语法和运行时为嵌入式进行优化，因此内存管理和编码
 
 ## 变量定义
 
-NexusEJS的编译器禁用了`var`，你必须使用`let`定义变量 `const`将在未来支持
+NexusEJS的编译器禁用了`var`，你必须使用`let`/ `const`定义变量，`const` 编译器可以通过检查但是目前没有只读能力
 
 ## 面向对象
 
-NexusEJS不支持new关键字和class关键字，因此，你需要使用工厂模式（Object Factory）来对对象进行创建
+NexusEJS暂不支持class关键字，但是构造函数和原型链依旧可用，类似ES5风格，因此，你需要使用构造函数或工厂模式来对对象进行创建
 
 ```javascript
 
+//构造函数
+
+function Human(name,age){
+  this.name = name;
+  this.age = age;
+}
+Human.prototype.getInfo = function(){
+  return "My name is " + this.name + " and my age is " + this.age;
+}
+
+let man = new Human("alice",25);
+
+//或工厂模式
 global.Human = {
     create(name,age){
         return {
@@ -113,9 +126,21 @@ global.Human = {
 let man = Human.create("bob",25);
 println(man.getInfo());
 
+
 ```
 
-其中`global`表示全局变量空间，类似浏览器中的`window`，使用工厂模式可以避免prototype链的内存开销，因为MCU的KB级别内存非常宝贵
+其中`global`表示全局变量空间，类似浏览器中的`window`，使用工厂模式可以避免prototype链的内存开销，但是如果对象存在大量成员需要复用，使用构造函数+原型链是更好的选择
+
+**但是要注意，目前为了节省内存，以下类型属于对象但是不可挂载成员也不可修改原型：**
+- array
+- string
+**以下类型不属于对象，仅装箱时为特殊对象，没有原型，不可使用.运算符访问成员**
+- number
+- boolean
+- null
+- undefined
+
+这些都是暂定方案，未来可能会改变
 
 ## 闭包
 
