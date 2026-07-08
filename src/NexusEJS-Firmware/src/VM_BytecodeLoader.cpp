@@ -248,9 +248,10 @@ VariableValue VM::InvokeCallbackWithWorker(VMWorker* worker,VariableValue& funct
 		return VariableValue(); //静默失败
 	}
 
-	if (code->type != ScriptFunction::Local) {
-		return VariableValue();
+	if (code->type == ScriptFunction::System) {
+		return code->funcImpl.system_func(args, thisValue, worker);
 	}
+
 	//参数不相等也失败
 	if (args.size() != code->funcImpl.local_func.arguments.size()) {
 		return VariableValue();
@@ -300,8 +301,9 @@ VariableValue VM::InvokeCallbackWithTempWorker(VMWorker* worker,VariableValue& f
 		return VariableValue(); //静默失败
 	}
 
-	if (code->type != ScriptFunction::Local) {
-		return VariableValue();
+	//原生函数直接调用返回
+	if (code->type == ScriptFunction::System) {
+		return code->funcImpl.system_func(args, thisValue, worker);
 	}
 	//参数不相等也失败
 	if (args.size() != code->funcImpl.local_func.arguments.size()) {

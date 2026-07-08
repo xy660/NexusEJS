@@ -8,6 +8,10 @@
 #include "VM.h"
 
 
+#define getGCFlag(obj, mask)    ((obj->gcFlag) & (mask))
+#define setGCFlagOn(obj, mask)  ((obj->gcFlag) |= (mask))
+#define setGCFlagOff(obj, mask) ((obj->gcFlag) &= ~(mask))
+
 class GC {
 private:
 	VM* bindingVM; //绑定的虚拟机

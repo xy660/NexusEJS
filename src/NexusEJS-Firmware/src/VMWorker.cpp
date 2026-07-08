@@ -148,6 +148,7 @@ const char* IOpCodeStr[] = {
 	"DEL_DEF", //从栈弹出一个VariableValue，从全局符号表删除给定名称的值
 	"LOAD_VAR",  //从栈弹出一个字符串，从全局/局部符号表寻找变量将值压入栈
 	"GET_FIELD", //获取对象属性值，一个桥接VariableValue(type=BRIDGE)指向成员VariableValue的指针
+	"GET_FIELD_ASS",
 
 	//常量池使用
 	"CONST_STR", //字符串常量,Unicode表示;指令结构：（1byte头+4byte长度+内容）
@@ -176,13 +177,13 @@ VMWorker::VMWorker(VM* current_vm) {
 	currentWorkerId = NULL;
 }
 
-static bool vtCanScheduleCheck(VirtualThreadSchedBlock& block) {
-	if (block.vtStatus == VirtualThreadSchedBlock::ACTIVED && block.callFrames.size() > 0) {
+static bool vtCanScheduleCheck(VirtualThreadSchedBlock* block) {
+	if (block->vtStatus == VirtualThreadSchedBlock::ACTIVED && block->callFrames.size() > 0) {
 		return true;
 	}
-	else if (block.vtStatus == VirtualThreadSchedBlock::BLOCKING && 
-				block.awakeTime <= platform.TickCount32()) {
-		block.vtStatus = VirtualThreadSchedBlock::ACTIVED;
+	else if (block->vtStatus == VirtualThreadSchedBlock::SLEEPING && 
+				block->awakeTime <= platform.TickCount32()) {
+		block->vtStatus = VirtualThreadSchedBlock::ACTIVED;
 		return true;
 	}
 	
@@ -202,8 +203,11 @@ void VMWorker::vtScheduleNext()
 	uint32_t scanIndexStart = vtSchedIndex;
 
 	while (!vtCanScheduleCheck(VirtualThreads[vtSchedIndex])) {
-		if (VirtualThreads[vtSchedIndex].callFrames.size() == 0 ||
-			VirtualThreads[vtSchedIndex].vtStatus == VirtualThreadSchedBlock::DEAD) {
+		if (VirtualThreads[vtSchedIndex]->callFrames.size() == 0 ||
+			VirtualThreads[vtSchedIndex]->vtStatus == VirtualThreadSchedBlock::DEAD) {
+			//对虚拟线程TCB对象手动释放(此对象所有权为调度列表)
+			VirtualThreads[vtSchedIndex]->~VirtualThreadSchedBlock();
+			platform.MemoryFree(VirtualThreads[vtSchedIndex]);
 			VirtualThreads.erase(VirtualThreads.begin() + vtSchedIndex);
 			vtSchedIndex--;
 		}
@@ -228,7 +232,7 @@ bool VMWorker::deadCheck()
 	uint32_t aliveVTCount = 0;
 	for (auto& vt : VirtualThreads) {
 		//检查虚拟线程是否真的死亡
-		if (vt.vtStatus != vt.DEAD && vt.callFrames.size() > 0) {
+		if (vt->vtStatus != VirtualThreadSchedBlock::DEAD && vt->callFrames.size() > 0) {
 			aliveVTCount++;
 		}
 	}
@@ -258,10 +262,19 @@ VariableValue VMWorker::Init(ByteCodeFunction& entry_func, std::vector<VariableV
 		index++;
 	}
 	frame.scopeStack.push_back(defaultScope);
-	VirtualThreads.emplace_back();
-	VirtualThreadSchedBlock& block = VirtualThreads.back();
-	block.vtStatus = VirtualThreadSchedBlock::ACTIVED;
-	block.callFrames.push_back(frame);
+	//VirtualThreads.emplace_back();
+	//VirtualThreadSchedBlock* block = VirtualThreads.back();
+	//block->vtStatus = VirtualThreadSchedBlock::ACTIVED;
+	//block->callFrames.push_back(frame);
+	auto* block = VirtualThreadSchedBlock::CreateVTEmptyBlock();
+	if (!block) {
+		printf("Warning! No enough memory. this worker will not be run");
+		return VariableValue();
+	}
+	block->vtStatus = VirtualThreadSchedBlock::ACTIVED;
+	block->callFrames.push_back(frame); //初始化默认虚拟线程调用栈
+	VirtualThreads.push_back(block);
+
 	return VMWorkerTask();
 }
 void VMWorker::ThrowError(std::string messageString) {
@@ -280,9 +293,10 @@ void VMWorker::ThrowError(VariableValue& messageString)
 
 #ifdef _DEBUG
 
+
 	//======调试用=======
 		//system("cls");
-	
+
 	auto& currentFn = callFrames.back();
 	auto& currentScope = currentFn.scopeStack.back();
 	printf("Exception has thrown!");
@@ -354,19 +368,33 @@ void VMWorker::ThrowError(VariableValue& messageString)
 		auto& fnFrame = callFrames[i];
 		for (int j = fnFrame.scopeStack.size() - 1; j >= 0; j--) {
 
-			//跳过当前作用域，因为逻辑上合理的异常处理程序不会出现在当前作用域
-			//同时也避免上一次残留的其他异常处理程序被误触发
-			//if (i == callFrames.size() - 1 && j == fnFrame.scopeStack.size() - 1) {
-			//	continue;
-			//}
-
 			auto& scopeFrame = fnFrame.scopeStack[j];
 			//向上找到异常处理程序
 			if (scopeFrame.CheckControlFlowType(ScopeFrame::TRYCATCH) &&
 				scopeFrame.exceptionHandlerEIP > scopeFrame.ep) { //判断一下当前的try块是否还有效
-				fnFrame.virtualStack.resize(scopeFrame.spStart);
-				fnFrame.localVariables.resize(scopeFrame.localvarStart);
-				fnFrame.localVarNames.resize(scopeFrame.localvarStart);
+				
+				//tryenter指令标记的作用域是try的父层作用域，需要根据子层进入的作用域
+				//恢复变量和栈
+				//类似于：
+				/*
+				* try_flag_scope{
+				* 
+				* var a;
+				* var b;
+				* ...
+				* try{  <---需要恢复到这里执行前的样子，同时删掉这里及往上的作用域
+				*
+				* }catch{
+				*
+				* }
+				*
+				* }
+				*/
+				auto& subScope = fnFrame.scopeStack[j + 1];
+				fnFrame.virtualStack.resize(subScope.spStart);
+				fnFrame.localVariables.resize(subScope.localvarStart);
+				fnFrame.localVarNames.resize(subScope.localvarStart);
+				
 				fnFrame.scopeStack.resize(j + 1);
 				callFrames.resize(i + 1); //清理掉多余的栈帧及其存储的局部变量
 				fnFrame = callFrames[i];
@@ -387,6 +415,7 @@ void VMWorker::ThrowError(VariableValue& messageString)
 
 	VMInstance->VM_UnhandledException(errorObject, this);
 }
+
 
 uint32_t getRawExecutionPosition(ScopeFrame* scope) {
 	return scope->spStart + scope->ep;
@@ -456,7 +485,7 @@ static VariableValue __make_closure(VariableValue& function, FuncFrame* frame, V
 		closureFunction->implement.closFuncImpl.closure = closureObject;
 	}
 	//propObject懒加载，必要的时候才分配节省内存
-	closureFunction->protectStatus = VMObject::NOT_PROTECTED; //等待GC清除标记
+	closureFunction->protectStatus = VMObject::NOT_PROTECTED; //等待GC清除对象树保护标记
 	return CreateReferenceVariable(closureFunction);
 }
 
@@ -543,7 +572,7 @@ VariableValue VMWorker::VMWorkerTask() {
 			}
 
 			//虚拟线程死亡，标记让调度器后续回收
-			VirtualThreads[vtSchedIndex].vtStatus = VirtualThreadSchedBlock::DEAD;
+			VirtualThreads[vtSchedIndex]->vtStatus = VirtualThreadSchedBlock::DEAD;
 			
 			//一个都没有了就作为返回值返回，因为设计上最后一个虚拟线程的返回值就是Worker返回值
 			if (this->deadCheck()) {
@@ -654,8 +683,10 @@ VariableValue VMWorker::VMWorkerTask() {
 
 		//======调试用=======
 
-		*/
+		//function det(i){if(i == 0) throw "dep"; else det(i-1);} try{det(5);println("passthrogh");}catch(ex){println(ex.toString());}
 
+
+		*/
 #endif
 
 		switch (op)
@@ -1034,12 +1065,16 @@ VariableValue VMWorker::VMWorkerTask() {
 
 				auto funcResult = funcInfo->InvokeFunc(arguments, funcRefVal->thisValue, NULL, this);
 
-				//Native函数则是调用完成后才清理栈参数
-				//确保调用过程GC可识别
-				currentFn->virtualStack.resize(currentFn->virtualStack.size() - op_argCount - 1);
-
+				
 				//如果原生函数未发生异常就压入返回值
 				if (!needResetLoop) {
+
+					//Native函数则是调用完成后才清理栈参数
+					//确保调用过程GC可识别
+					//发生异常不清理，因为地址可能已经失效
+					currentFn->virtualStack.resize(currentFn->virtualStack.size() - op_argCount - 1);
+
+
 					if (funcResult.varType == ValueType::REF) {
 						funcResult.content.ref->protectStatus = VMObject::NOT_PROTECTED;
 					}
@@ -1237,14 +1272,15 @@ VariableValue VMWorker::VMWorkerTask() {
 			VariableValue* parent = currentFn->virtualStack[currentFn->virtualStack.size() - 2].getRawVariable();
 			VariableValue result;
 			ValueType::IValueType parentType = parent->getContentType();
-		restart_get_field: //类型切换复用标签
+			std::string& key = fieldName->content.ref->implement.stringImpl;
+
 			if (parentType == ValueType::ARRAY) {
 				//Array类型返回的不是BRIDGE类型，比如内置方法/length等属性
 				//数组元素通过Array.get方法返回的BRIDGE类型VariableValue实现修改和访问
-				result = GetArraySymbol(fieldName->content.ref->implement.stringImpl, parent->content.ref);
+				result = GetArraySymbol(key, parent->content.ref);
 			}
 			else if (parentType == ValueType::STRING) {
-				result = GetStringValSymbol(fieldName->content.ref->implement.stringImpl, parent->content.ref);
+				result = GetStringValSymbol(key, parent->content.ref);
 			}
 			else if (parentType == ValueType::FUNCTION && parent->varType == ValueType::REF) {
 				//函数对象允许存储属性
@@ -1256,66 +1292,71 @@ VariableValue VMWorker::VMWorkerTask() {
 
 				VMObject* propObject = parent->content.ref->implement.closFuncImpl.propObject;
 
-				auto& obj_container = propObject->implement.objectImpl;
-				auto key = fieldName->ToString();
-				result.varType = ValueType::BRIDGE;
-
-				//从符号表取出的拷贝引用设置thisValue绑定
-				result.content.bridge_ref = &obj_container[key];
-				result.content.bridge_ref->thisValue = parent->content.ref;
+				bool found = GetObjectField(key, propObject, result,false);
+				if (!found) {
+					ThrowError("can not find symbol:" + fieldName->ToString());
+					continue;
+				}
+				result.thisValue = parent->content.ref; //修复this指向func对象
 
 			}
 			else if (parentType == ValueType::OBJECT) {
-				//返回BRIDGE类型，确保修改对象可以修改obj.member
 
-				auto& obj_container = parent->content.ref->implement.objectImpl;
-				auto key = fieldName->ToString();
-				result.varType = ValueType::BRIDGE;
+				bool found = GetObjectField(key, parent->content.ref, result,false);
 
-				VariableValue buildinMember = GetObjectBuildinSymbol(key, parent->content.ref);
-
-				//map隐式创建可key，这个Bridge指针生命周期只在这条表达式内
-				//优先查找对象符号表，找不到就看看内置符号表有没有，如果没有就创建有就返回
-				if (obj_container.find(key) != obj_container.end()) {
-					//从符号表取出的拷贝引用设置thisValue绑定
-					result.content.bridge_ref = &obj_container[key];
-					result.content.bridge_ref->thisValue = parent->content.ref;
-				}
-				else {
-					if (buildinMember.varType != ValueType::NULLREF) {
-						result = buildinMember;
-					}
-					else {
-						result.content.bridge_ref = &obj_container[key];
-						result.content.bridge_ref->thisValue = parent->content.ref;
-					}
-				}
-
-			}
-
-			if (result.varType == ValueType::NULLREF) {
-				ThrowError("can not find symbol:" + fieldName->ToString());
-				continue;
+				
+				if (!found) {
+					ThrowError("can not find symbol:" + fieldName->ToString());
+					continue;
+				}	
 			}
 
 			currentFn->virtualStack.resize(currentFn->virtualStack.size() - 2);
 			currentFn->virtualStack.push_back(result);
-
 			break;
 		}
-		case OpCode::CONST_STR:
+		case OpCode::GET_FIELD_ASS: 
 		{
-			/*
-			uint32_t length = *(uint32_t*)(currentFn->byteCode + rawep + 1);
-			char* str_start = (char*)(currentFn->byteCode + rawep + sizeof(uint32_t) + 1);
-			std::string str(str_start, length);
-			VMObject vm_str(ValueType::STRING); //创建不归GC管理的常量字符串对象
-			vm_str.implement.stringImpl = str;
-			currentFn->constStringPool.push_back(vm_str);
-			currentScope->ep += 1 + 4 + length * sizeof(char); //头+4字节长度+内容
-			*/
-			//废弃的指令，抛出错误
-			ThrowError("CONST_STR code not supported");
+			VariableValue* fieldName = currentFn->virtualStack[currentFn->virtualStack.size() - 1].getRawVariable();
+			VariableValue* parent = currentFn->virtualStack[currentFn->virtualStack.size() - 2].getRawVariable();
+			VariableValue result;
+			ValueType::IValueType parentType = parent->getContentType();
+			std::string& key = fieldName->content.ref->implement.stringImpl;
+
+			if (parentType == ValueType::ARRAY) {
+				//Array类型返回的不是BRIDGE类型，比如内置方法/length等属性
+				//数组元素通过Array.get方法返回的BRIDGE类型VariableValue实现修改和访问
+				result = GetArraySymbol(key, parent->content.ref);
+			}
+			else if (parentType == ValueType::STRING) {
+				result = GetStringValSymbol(key, parent->content.ref);
+			}
+			else if (parentType == ValueType::FUNCTION && parent->varType == ValueType::REF) {
+				//函数对象允许存储属性
+
+				//需要时分配
+				if (!parent->content.ref->implement.closFuncImpl.propObject) {
+					parent->content.ref->implement.closFuncImpl.propObject = currentGC->Internal_NewObject(ValueType::OBJECT);
+				}
+
+				VMObject* propObject = parent->content.ref->implement.closFuncImpl.propObject;
+
+				bool found = GetObjectField(key, propObject, result, true);
+
+				//如果访问prototype就新建空白对象
+				if (!found && key == "prototype") {
+					*(result.getRawVariable()) = CreateReferenceVariable(currentGC->Internal_NewObject(ValueType::OBJECT));
+				}
+
+				result.thisValue = parent->content.ref; //修复this指向func对象
+			}
+			else if (parentType == ValueType::OBJECT) {
+
+				bool found = GetObjectField(key, parent->content.ref, result,true);	
+			}
+
+			currentFn->virtualStack.resize(currentFn->virtualStack.size() - 2);
+			currentFn->virtualStack.push_back(result);
 			break;
 		}
 		default:

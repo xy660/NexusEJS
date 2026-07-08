@@ -6,6 +6,7 @@
 #include <functional>
 #include "VariableValue.h"
 #include "PlatformImpl.h"
+#include "ObjectManager.h"
 #include "GC.h"
 
 
@@ -13,6 +14,8 @@
 #define EMERGENCY_MEMORY_TRIG_COLLECT 0.1f //强制触发GC阈值，无视触发时间，设置为0表示禁用
 #define AUTO_GC_MIN_DELAY_MS 3000 //自动GC最小间隔
 #define GC_MAX_WAIT_STW_TIME 500
+
+static std::string finalizerName = "finalize";
 
 void GC::enterSTWSafePoint() {
 	platform.MutexLock(GCSTWCounterLock);
@@ -26,22 +29,7 @@ void GC::enterSTWSafePoint() {
 	STW_ArrivedThreadCount--; //减少计数，表示线程恢复运行
 	platform.MutexUnlock(GCSTWCounterLock);
 }
-/*
-void GC::enterLongBlockWithoutVMObject() {
-	platform.MutexLock(GCSTWCounterLock);
-	EnteredLongBlockCount++;
-	platform.MutexUnlock(GCSTWCounterLock);
-}
 
-void GC::leaveLongBlockWithoutVMObject() {
-	platform.MutexLock(GCSTWCounterLock);
-	EnteredLongBlockCount--;
-	platform.MutexUnlock(GCSTWCounterLock);
-	if (GCRequired) {
-		enterSTWSafePoint();
-	}
-}
-*/
 void GC::IgnoreWorkerCount_Inc()
 {
 	platform.MutexLock(GCSTWCounterLock);
@@ -228,6 +216,9 @@ void DFS_TravelObject(std::stack<VMObject*>& dfsStack, Func procObject, VM* VMIn
 			continue;
 		}
 
+		//同步标记原型对象(prototype)
+		if (obj->prototype) dfsStack.push(obj->prototype);
+
 		if (obj->type == ValueType::ARRAY) { //如果是数组就遍历数组引用标记
 			//auto& vec = std::get<std::vector<VariableValue>>(obj->implement);
 			auto& vec = obj->implement.arrayImpl;
@@ -317,7 +308,7 @@ void GC::Internal_GC_Collect() {
 	//遍历栈起点，将所有持有的局部变量设置为root
 	for (auto worker : bindingVM->workers) {
 		for (auto& vThread : worker->getAllVTBlocks()) {
-			for (auto& fnFrame : vThread.callFrames) {
+			for (auto& fnFrame : vThread->callFrames) {
 
 				//将调用链的所有字节码函数所属的包标记，运行中的字节码函数不应回收
 				bindingVM->loadedPackages[fnFrame.functionInfo->packageId].GCMarked = true;
@@ -363,9 +354,10 @@ void GC::Internal_GC_Collect() {
 	}
 
 	auto defaultMarkProc = [](VMObject* vmo) -> bool {
-		if (vmo->marked) return true; //剪枝
+		if (getGCFlag(vmo,VMObject::GC_FLAG_MARKED)) return true; //剪枝
 
-		vmo->marked = true;
+		//vmo->marked = true;
+		setGCFlagOn(vmo, VMObject::GC_FLAG_MARKED);
 		vmo->protectStatus = VMObject::NONE; //完全清空保护标记
 
 		return false;
@@ -378,13 +370,16 @@ void GC::Internal_GC_Collect() {
 	std::vector<VMObject*> finalizeQueue;
 	//开始标记所有不可达但携带finalize方法的对象引用图，此时认为他还是有效对象
 	for (VMObject* vmo : allObjects) {
-		if (!vmo->marked) {
+		if (!getGCFlag(vmo,VMObject::GC_FLAG_MARKED)) {
 			//fix: 修复误杀同时携带保护标志和自定义终结器的对象
-			if (vmo->type == ValueType::OBJECT && vmo->protectStatus != VMObject::PROTECTED) {
-				auto findFinalize = vmo->implement.objectImpl.find("finalize");
-				if (findFinalize != vmo->implement.objectImpl.end()) {
+			if (!getGCFlag(vmo,VMObject::GC_FLAG_FINALIZER_ALLOWED) &&
+				vmo->type == ValueType::OBJECT && vmo->protectStatus != VMObject::PROTECTED) {
+				//auto findFinalize = vmo->implement.objectImpl.find("finalize");
+				VariableValue findResult;
+				auto findFinalzer = GetObjectField(finalizerName, vmo, findResult, false);
+				if (findFinalzer) {
 					//这里使用getContentType判断是否是函数因为可能存在闭包的对象实现函数
-					if ((*findFinalize).second.getContentType() == ValueType::FUNCTION) {
+					if (findResult.getContentType() == ValueType::FUNCTION) {
 						//送入终结器调用队列，暂时不回收它的内存
 						finalizeQueue.push_back(vmo);
 						dfsStack.push(vmo); //标记他所有引用的对象，保证存活避免垂悬指针
@@ -398,9 +393,9 @@ void GC::Internal_GC_Collect() {
 			if (vmo->protectStatus == VMObject::PROTECTED) { //标记受保护的
 				dfsStack.push(vmo);
 				DFS_TravelObject(dfsStack, [](VMObject* vmo) -> bool {
-					if (vmo->marked) return true;
+					if (getGCFlag(vmo,VMObject::GC_FLAG_MARKED)) return true;
 
-					vmo->marked = true;
+					setGCFlagOn(vmo, VMObject::GC_FLAG_MARKED);
 
 					return false;
 
@@ -426,16 +421,15 @@ void GC::Internal_GC_Collect() {
 	//标记完有用的对象接下来删掉所有没用的
 	for (auto it = allObjects.begin(); it != allObjects.end();) {
 		VMObject* currentObject = *it;
-		if (!currentObject->marked) {
+		if (!getGCFlag(currentObject,VMObject::GC_FLAG_MARKED)) {
 			GC_FreeObject(currentObject);
 			//这里不需要锁，如果出现问题表示STW不成功
-			//platform.MutexLock(GCObjectSetLock);
 			it = allObjects.erase(it);
-			//platform.MutexUnlock(GCObjectSetLock);
 			continue;
 		}
 		else {
-			(*it)->marked = false; //存活的对象清理掉标记，下次回收无需重复清除标记
+			setGCFlagOff((*it), VMObject::GC_FLAG_MARKED);
+			//(*it)->marked = false; //存活的对象清理掉标记，下次回收无需重复清除标记
 		}
 		it++;
 	}
@@ -444,9 +438,10 @@ void GC::Internal_GC_Collect() {
 	//先扫描所有的常量字符串，然后确认是否需要，并将标记重置
 	for (auto& package : bindingVM->loadedPackages) {
 		for (auto& con_str : package.second.ConstStringPool) {
-			if (con_str->marked) {
+			if (getGCFlag(con_str,VMObject::GC_FLAG_MARKED)) {
 				package.second.GCMarked = true;
-				con_str->marked = false; //移除标记让下一次扫描
+				setGCFlagOff(con_str, VMObject::GC_FLAG_MARKED);//移除标记让下一次扫描
+				//con_str->marked = false; 
 			}
 		}
 	}
@@ -495,7 +490,11 @@ void GC::Internal_GC_Collect() {
 
 		//ScriptFunction* finalizeFunc = needFinalizeObject->implement.objectImpl["finalize"].content.function;
 
-		auto& finalizeFuncMember = needFinalizeObject->implement.objectImpl["finalize"];
+		//auto& finalizeFuncMember = needFinalizeObject->implement.objectImpl["finalize"];
+		
+		VariableValue finalizeFuncMember;
+		GetObjectField(finalizerName, needFinalizeObject, finalizeFuncMember, false);
+		finalizeFuncMember = *finalizeFuncMember.getRawVariable(); //deref
 
 		ScriptFunction* finalizeFunc;
 		if (finalizeFuncMember.varType == ValueType::REF) {
@@ -532,13 +531,16 @@ void GC::Internal_GC_Collect() {
 		}
 		else {
 #ifdef _DEBUG
-			printf("对象finalize方法签名不正确 %ws  参数数：%d\n", needFinalizeObject->ToString().c_str(), finalizeFunc->argumentCount);
+			printf("对象finalize方法签名不正确 %s  参数数：%d\n", needFinalizeObject->ToString().c_str(), finalizeFunc->argumentCount);
 #endif	
 		}
 
-		//移除finalize字段，这样下次就会被直接清理
 		if (allowFinalize) {
-			needFinalizeObject->implement.objectImpl.erase("finalize");
+			//因为finalize函数可能在原型链上，这里直接删掉这个对象，它的子引用最终因为不可达会被删除
+			//needFinalizeObject->implement.objectImpl.erase("finalize");
+			//GC_DeleteObject(needFinalizeObject); //调用并发安全的DeleteObject，因为此时已经恢复世界
+
+			setGCFlagOn(needFinalizeObject, VMObject::GC_FLAG_FINALIZER_ALLOWED);
 		}
 	}
 

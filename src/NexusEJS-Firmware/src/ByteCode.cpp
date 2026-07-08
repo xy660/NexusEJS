@@ -53,6 +53,7 @@ uint8_t OpCode::instructionSize[] = {
     1,  // DEL_DEF
     1,  // LOAD_VAR
     1,  // GET_FIELD
+    1,  // GET_FIELD_ASS
     0, // CONST_STR (标记为0表示让分支自己处理变长)
 };
 

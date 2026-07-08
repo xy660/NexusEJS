@@ -31,6 +31,9 @@ inline bool operator ==(const VMObject& a, const VMObject& b);
 inline bool operator ==(const VariableValue& left, const VariableValue& right);
 inline bool operator !=(const VariableValue& a, const VariableValue& b);
 
+//全局原型根
+extern VMObject objectPrototype;
+
 
 class ValueType {
 public:
@@ -57,7 +60,7 @@ bool isRefType(VariableValue* vrb);
 struct ClosureFunctionImpl {
     ScriptFunction* sfn;
     VMObject* closure;
-    VMObject* propObject; //存储函数对象的成员（内联的对象）*目前未实现，此为保留字段*
+    VMObject* propObject; //存储函数对象的成员（内联的对象)
 };
 
 //变量引用，不存储实际对象值
@@ -74,10 +77,10 @@ public:
         uintptr_t ptr; //值类型指针
         bool boolean; //值类型布尔
     } content;
-    ValueType::IValueType varType;
 
     VMObject* thisValue; //脚本函数动态绑定的this，由GET_FILED指令动态设置
 
+    ValueType::IValueType varType;
     bool readOnly = false;
 
     //获取真实值类型，每次使用值都需要调用
@@ -100,10 +103,25 @@ public:
 
 class VMObject {
 public:
-    
-    bool marked; //GC要用
 
-    enum VMObjectProtectStatus {
+    enum GCFlagMask {
+        GC_FLAG_MARKED = 1,
+        //对象的finalize方法允许回收，下次不再调用finalizer
+        //如果对象不存在finalizer，忽略此字段
+        GC_FLAG_FINALIZER_ALLOWED = 1 << 1,
+    };
+
+    uint8_t gcFlag = 0;
+    
+    /*
+    bool marked : 1; //GC要用
+
+    //对象的finalize方法允许回收，下次不再调用finalizer
+    //如果对象不存在finalizer，忽略此字段
+    bool finalizerAllowed : 1; 
+    */
+
+    enum VMObjectProtectStatus : uint8_t {
         NONE,
         PROTECTED,
         NOT_PROTECTED,
@@ -114,6 +132,7 @@ public:
 
     void* mutex; //对象锁，按需分配，默认null
 
+    VMObject* prototype;
 
     union VMOImplement
     {
@@ -177,12 +196,13 @@ public:
 
     */
 
+    //创建对象，原型是全局对象根
     VMObject(ValueType::IValueType type) {
-        //this->flag_isLocalObject = false;
         this->type = type;
-        this->marked = false;
+        this->gcFlag = 0;
         this->protectStatus = NONE;
-        this->mutex = NULL;
+        this->mutex = nullptr;
+        this->prototype = &objectPrototype;
         switch (type)
         {
         case ValueType::STRING:
@@ -211,6 +231,11 @@ public:
         }
     }
 
+    //创建对象并携带自定义原型
+    VMObject(ValueType::IValueType type, VMObject* prototype): VMObject(type) {
+        this->prototype = prototype;
+    }
+
     ~VMObject() {
         switch (this->type)
         {
@@ -230,6 +255,7 @@ public:
             break;
         }
         case ValueType::FUNCTION:
+            //结构体是3个pod（指针），不用动
             break; 
         default:
             break;
@@ -249,7 +275,6 @@ class ScriptFunction {
 public:
     enum FuncType : uint8_t {
         Local,
-        Native, //暂时没有这个，因为FFI未实现
         System
     } type;
 

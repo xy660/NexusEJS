@@ -898,6 +898,67 @@ void ObjectClassInit() {
 		return CreateReferenceVariable(entriesArray);
 		});
 
+	objectClass->implement.objectImpl["getPrototypeOf"] = VM::CreateSystemFunc(1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+		
+		if (args[0].varType != ValueType::REF) return VariableValue();
+
+		return CreateReferenceVariable(args[0].content.ref->prototype);
+
+		});
+
+	objectClass->implement.objectImpl["setPrototypeOf"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+
+		
+		if (args[0].varType != ValueType::REF || args[1].varType != ValueType::REF) return VariableValue();
+
+		VMObject* parentObject = args[0].content.ref;
+
+		if (args[0].getContentType() == ValueType::FUNCTION) {
+			parentObject = parentObject->implement.closFuncImpl.propObject;
+		}
+
+		VMObject* protoObject = args[1].content.ref;
+
+		if (args[1].getContentType() == ValueType::FUNCTION) {
+			protoObject = parentObject->implement.closFuncImpl.propObject;
+		}
+		else if (args[1].getContentType() != ValueType::OBJECT) {
+			//目前的Array和String没真正的PropContainer，限定arg2只能Object
+			worker->ThrowError("not implement! array and string cannot be a proto");
+			return VariableValue();
+		}
+
+		parentObject->prototype = protoObject;
+
+		return VariableValue();
+		});
+
+	objectClass->implement.objectImpl["hasOwn"] = VM::CreateSystemFunc(2, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* worker)->VariableValue {
+		if (args[0].varType != ValueType::REF) {
+			worker->ThrowError("hasOwn: first argument must be an object");
+			return VariableValue();
+		}
+		std::string propKey = args[1].ToString();
+
+		VMObject* targetObj = args[0].content.ref;
+
+		//目前这两个类型没KV容器
+		if (targetObj->type == ValueType::ARRAY || targetObj->type == ValueType::STRING) {
+			worker->ThrowError("hasOwn: Array and String instances do not support custom properties");
+			return VariableValue();
+		}
+
+		//拉出函数内部的寄生对象进行取值
+		if (targetObj->type == ValueType::FUNCTION) {
+			targetObj = targetObj->implement.closFuncImpl.propObject;
+		}
+
+		//仅查询自身自有属性，不遍历原型链
+		bool exist = targetObj->implement.objectImpl.find(propKey) != targetObj->implement.objectImpl.end();
+
+		return CreateBooleanVariable(exist);
+		});
+
 	SystemBuildinSymbols["Object"] = CreateReferenceVariable(objectClass);
 }
 
@@ -1000,7 +1061,15 @@ void VTAPI_Init() {
 			return VariableValue();
 		}
 
-		currentWorker->getAllVTBlocks().emplace_back(args[0]);
+		//currentWorker->getAllVTBlocks().emplace_back(args[0]);
+
+		auto* block = VirtualThreadSchedBlock::CreateVTBlock(args[0]);
+
+		if (!block) {
+			currentWorker->ThrowError("Out of memory!");
+		}
+
+		currentWorker->getAllVTBlocks().push_back(block);
 
 		return VariableValue();
 		});
@@ -1017,9 +1086,9 @@ void VTAPI_Init() {
 		}
 		else {
 			//让出CPU让调度器调度其他虚拟线程
-			auto& vtBlock = currentWorker->getCurrentVTBlock();
-			vtBlock.vtStatus = VirtualThreadSchedBlock::BLOCKING;
-			vtBlock.awakeTime = platform.TickCount32() + args[0].content.number;
+			auto* vtBlock = currentWorker->getCurrentVTBlock();
+			vtBlock->vtStatus = VirtualThreadSchedBlock::SLEEPING;
+			vtBlock->awakeTime = platform.TickCount32() + args[0].content.number;
 			currentWorker->vtScheduleNext();
 		}
 
@@ -1128,6 +1197,7 @@ void BuildinStdlib_Init()
 		return CreateReferenceVariable(TaskControlObject);
 	});
 
+	//lock关键字的魔法函数
 	RegisterSystemFunc("mutexLock", 1, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker)->VariableValue {
 		
 		if (args[0].getRawVariable()->varType != ValueType::REF) {
@@ -1205,6 +1275,65 @@ void BuildinStdlib_Init()
 		return ret;
 
 		});
+
+	//new关键字的魔法函数
+	RegisterSystemFunc("__new__", DYNAMIC_ARGUMENT, [](std::vector<VariableValue>& args, VMObject* thisValue, VMWorker* currentWorker) -> VariableValue {
+
+		if (args.size() == 0) return VariableValue();
+
+		//必须是函数对象
+		if (args[0].varType != ValueType::REF || args[0].getContentType() != ValueType::FUNCTION) {
+			currentWorker->ThrowError("Invaild new target");
+		}
+
+		//获取函数对象的Prop代理对象的func.[[propObject]].prototype，对于脚本来说是func.prototype
+		if (!args[0].content.ref->implement.closFuncImpl.propObject) {
+			//未加载，创建新的prop容器对象
+			auto* propInstance = currentWorker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+			args[0].content.ref->implement.closFuncImpl.propObject = propInstance;
+			propInstance->protectStatus = VMObject::NOT_PROTECTED; //挂载成功，取消保护
+		}
+
+		auto* fn_prop = args[0].content.ref->implement.closFuncImpl.propObject;
+		auto find_prototype = fn_prop->implement.objectImpl.find("prototype");
+
+		VMObject* proto;
+		//暂定只实现对象原型，应该很少人会拿奇奇怪怪的东西当原型吧
+		if (find_prototype != fn_prop->implement.objectImpl.end() &&
+			(*find_prototype).second.getContentType() == ValueType::OBJECT) {
+			
+			proto = (*find_prototype).second.content.ref;
+		}
+		else {
+			proto = &objectPrototype;
+		}
+
+
+		auto* newObject = currentWorker->VMInstance->currentGC->GC_NewObject(ValueType::OBJECT);
+
+		newObject->prototype = proto;
+
+		std::vector<VariableValue> constructorArgs;
+
+		for (int i = 1; i < args.size(); i++) {
+			constructorArgs.push_back(args[i]);
+		}
+
+		auto constructorResult = currentWorker->VMInstance->InvokeCallback(args[0], constructorArgs, newObject);
+
+		//根据ECMA标准，如果构造器返回对象直接覆盖原本的初始化对象，直接抛弃然后给GC回收
+		if (constructorResult.varType == ValueType::REF) {
+			//currentWorker->VMInstance->currentGC->GC_DeleteObject(newObject);
+			//这里不能直接回收了，发现如果用户return this或者保存了this到其他地方
+			//会导致垂悬指针，所以选择手动取消newObject的保护，让GC自己分析能不能回收
+			newObject->protectStatus = VMObject::NOT_PROTECTED;
+			return constructorResult;
+		}
+
+		return CreateReferenceVariable(newObject);
+
+	});
+
 
 	MathClassInit();
 

@@ -10,3 +10,4 @@
 void ObjectManager_Init();
 void ObjectManager_Destroy();
 VariableValue GetObjectBuildinSymbol(std::string& symbol, VMObject* owner);
+bool GetObjectField(std::string& key, VMObject* parent, VariableValue& result,bool isAssign);

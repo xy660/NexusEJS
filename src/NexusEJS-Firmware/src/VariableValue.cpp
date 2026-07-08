@@ -268,11 +268,6 @@ VariableValue ScriptFunction::InvokeFunc(std::vector<VariableValue>& args, VMObj
         result.varType = ValueType::NULLREF;//需要等待栈帧返回，此时返回NULLREF
         return result;
     }
-    case Native: 
-    {
-        //原生方法阻塞到结束
-        //todo 未实现
-    }
     case System:
     {
         //系统原生方法阻塞到结束并且返回值

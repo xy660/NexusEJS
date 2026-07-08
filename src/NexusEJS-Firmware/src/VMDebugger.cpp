@@ -122,7 +122,7 @@ const char* IOpCodeStr_DBG[] = {
 	"DEL_DEF", //从栈弹出一个VariableValue，从全局符号表删除给定名称的值
 	"LOAD_VAR",  //从栈弹出一个字符串，从全局/局部符号表寻找变量将值压入栈
 	"GET_FIELD", //获取对象属性值，一个桥接VariableValue(type=BRIDGE)指向成员VariableValue的指针
-
+	"GET_FIELD_ASS",
 	//常量池使用
 	"CONST_STR", //字符串常量,Unicode表示;指令结构：（1byte头+4byte长度+内容）
 };

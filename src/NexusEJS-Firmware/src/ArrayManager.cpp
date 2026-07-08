@@ -1,5 +1,6 @@
 #include "ArrayMapager.h"
 #include "PlatformImpl.h"
+#include "ObjectManager.h"
 #include <stdint.h>
 #include <functional>
 #include <algorithm>
@@ -7,7 +8,9 @@
 //ARRAY对象符号表
 //返回方法包装的VMObject对象，或
 
-std::unordered_map<std::string, VariableValue> array_symbol_map;
+VMObject arrayPrototype(ValueType::OBJECT);
+
+std::unordered_map<std::string, VariableValue>& array_symbol_map = arrayPrototype.implement.objectImpl;
 std::vector<ScriptFunction*> arrayman_script_function_alloc;
 
 void* ArraySymbolMapLock;
@@ -538,16 +541,13 @@ VariableValue GetArraySymbol(std::string& symbol,VMObject* owner) {
 		return ret;
 	}
 
-	platform.MutexLock(ArraySymbolMapLock);
+    //查找原型（这里不做默认值增加）
+    VariableValue ret;
+    GetObjectField(symbol, &arrayPrototype, ret, false);
+    ret = *ret.getRawVariable(); //解引用确保外部不会污染，因为这个相当于数组的原型函数
+    ret.thisValue = owner;
 
-	if (array_symbol_map.find(symbol) == array_symbol_map.end()) {
-		platform.MutexUnlock(ArraySymbolMapLock);
-		return VariableValue(); //如果不存在就返回NULLREF，避免破坏
-	}
+    //查表不需要锁
 	
-	//复制并设置thisValue
-	VariableValue ret = array_symbol_map[symbol];
-	ret.thisValue = owner;
-	platform.MutexUnlock(ArraySymbolMapLock);
 	return ret;
 }

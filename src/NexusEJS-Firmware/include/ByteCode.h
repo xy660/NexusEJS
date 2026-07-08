@@ -116,6 +116,8 @@ public:
         //GET_FIELD返回的VariableValue，obj.sub中，sub的值是 get_field.bridge->ref
         //STORE指令需要判断一下是不是桥接类型
 
+        GET_FIELD_ASS,
+
         //常量池使用
         CONST_STR, //字符串常量,Unicode表示;指令结构：（1byte头+4byte长度+内容）
     };

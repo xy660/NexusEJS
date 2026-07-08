@@ -1,8 +1,8 @@
 #pragma once
 
-#define VM_VERSION_NUMBER 6
+#define VM_VERSION_NUMBER 7
 
-#define VM_VERSION_STR "V1.5.1"
+#define VM_VERSION_STR "V1.5.3"
 
 #define DYNAMIC_ARGUMENT 0xFF
 
@@ -13,6 +13,7 @@
 
 #include <memory>
 #include <vector>
+#include <deque>
 #include <unordered_map>
 #include "ByteCode.h"
 #include "VariableValue.h"
@@ -49,6 +50,10 @@ public:
 		//初始化默认值
 		returnValue.varType = ValueType::NULLREF;
 		functionInfo = NULL;
+	}
+
+	~FuncFrame() {
+
 	}
 };
 
@@ -89,6 +94,11 @@ public:
 
 	}
 
+	VirtualThreadSchedBlock(const VirtualThreadSchedBlock&) = delete;
+	VirtualThreadSchedBlock(VirtualThreadSchedBlock&&) = delete;
+	VirtualThreadSchedBlock& operator=(const VirtualThreadSchedBlock&) = delete;
+	VirtualThreadSchedBlock& operator=(VirtualThreadSchedBlock&&) = delete;
+
 	VirtualThreadSchedBlock(VariableValue& function) {
 		if (function.varType == ValueType::FUNCTION && 
 			function.content.function->type == ScriptFunction::System) {
@@ -126,20 +136,82 @@ public:
 		this->vtStatus = VirtualThreadSchedBlock::ACTIVED;
 	}
 
-	std::vector<FuncFrame> callFrames;
+	~VirtualThreadSchedBlock() {
+		/*
+		//释放所有栈帧内存
+		for (auto* pFuncFrame : callFrames) {
+			pFuncFrame->~FuncFrame();
+			platform.MemoryFree(pFuncFrame);
+		}
+		*/
+	}
+
+	static inline VirtualThreadSchedBlock* CreateVTBlock(VariableValue& function) {
+		VirtualThreadSchedBlock* block = (VirtualThreadSchedBlock*)platform.MemoryAlloc(sizeof(VirtualThreadSchedBlock));
+		if (!block) {
+			printf("VirtualThreadSchedBlock::CreateVTBlock OOM!\r\n");
+			return nullptr;
+		}
+		new (block) VirtualThreadSchedBlock(function);
+		
+		return block;
+	}
+
+	static inline VirtualThreadSchedBlock* CreateVTEmptyBlock() {
+		VirtualThreadSchedBlock* block = (VirtualThreadSchedBlock*)platform.MemoryAlloc(sizeof(VirtualThreadSchedBlock));
+		if (!block) {
+			printf("VirtualThreadSchedBlock::CreateVTEmptyBlock OOM!\r\n");
+			return nullptr;
+		}
+		new (block) VirtualThreadSchedBlock();
+
+		return block;
+	}
+
+
+	/*
+	* 关于长等待IO的Native函数异步化：
+	* 
+	* 每一个Native函数都必须返回一个值，哪怕你设置了VT进入等待，
+	* 它也会在你这个函数return后才进入等待。
+	* 一般长IO比如http.get，这个get内部会暂停当前VT，然后return一个null，等get真正完成事件发生后，替换这个null为实际返回值
+	* 实现无感异步化
+	*/
+
+
+
+	//用于状态是WAITTING的虚拟线程唤醒并设置从NativeIO函数返回的返回值
+	inline bool ResumeVTAndSetReturnValue(VariableValue& retValue) {
+		if (this->vtStatus != WAITTING) return false;
+
+		//将虚拟线程操作数栈顶的预返回值替换为实际返回值
+		callFrames.back().virtualStack.back() = retValue;
+
+		if (retValue.varType == ValueType::REF) {
+			retValue.content.ref->protectStatus = VMObject::NOT_PROTECTED;
+		}
+		
+		this->vtStatus = ACTIVED;
+
+		return true;
+	}
+
+	//std::vector<FuncFrame> callFrames;
+	std::deque<FuncFrame> callFrames;
 	uint32_t awakeTime = 0; //由TickCount32决定
 	enum VirtualThreadStatus {
 		NONE,
 		ACTIVED,
-		BLOCKING,
-		DEAD
+		SLEEPING,
+		DEAD,
+		WAITTING
 	} vtStatus = NONE;
 };
 
 class VMWorker {
 private:
 
-	std::vector<VirtualThreadSchedBlock> VirtualThreads;
+	std::vector<VirtualThreadSchedBlock*> VirtualThreads;
 
 	uint32_t vtSchedIndex = 0; //调度器指针，表示当前是第几个虚拟线程执行
 
@@ -166,8 +238,11 @@ public:
 
 	~VMWorker() {
 		//先放着看看，后续看看实际运行行为
-		for (auto& vt : VirtualThreads) {
-			vt.callFrames.clear();
+		for (auto* vt : VirtualThreads) {
+			//改成指针存储后这里需要手动释放内存
+			vt->callFrames.clear();
+			vt->~VirtualThreadSchedBlock();
+			platform.MemoryFree(vt);
 		}
 	}
 
@@ -175,18 +250,24 @@ public:
 
 	bool deadCheck();
 
-	inline std::vector<VirtualThreadSchedBlock>& getAllVTBlocks()
+	inline std::vector<VirtualThreadSchedBlock*>& getAllVTBlocks()
 	{
 		return this->VirtualThreads;
 	}
 
-	inline VirtualThreadSchedBlock& getCurrentVTBlock() {
+	inline VirtualThreadSchedBlock* getCurrentVTBlock() {
 		return this->VirtualThreads[this->vtSchedIndex];
 	}
-
+	/*
 	inline std::vector<FuncFrame>& getCurrentCallingLink()
 	{
-		return this->VirtualThreads[this->vtSchedIndex].callFrames;
+		return this->VirtualThreads[this->vtSchedIndex]->callFrames;
+	}
+	*/
+
+	inline std::deque<FuncFrame>& getCurrentCallingLink()
+	{
+		return this->VirtualThreads[this->vtSchedIndex]->callFrames;
 	}
 
 	inline void setVTScheduleEnabled(bool value) {
