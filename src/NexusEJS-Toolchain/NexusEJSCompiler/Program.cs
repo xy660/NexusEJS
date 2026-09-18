@@ -18,7 +18,7 @@ namespace CompileLab
             var tokens = Lexer.SplitTokens(code);
             ASTNode ast = Parser.BuildASTByTokens(tokens);
 
-            Console.WriteLine(SyntaxUtils.GetASTString(ast));
+            if(DetailOutput) Console.WriteLine(SyntaxUtils.GetASTString(ast));
 
 
             var comp = new Compiler();
@@ -116,6 +116,7 @@ namespace CompileLab
                 var code = Console.ReadLine();
                 ASTNode ast = Parser.BuildASTByTokens(Lexer.SplitTokens(code));
 
+                Console.WriteLine(SyntaxUtils.GetASTString(ast));
                
                 var comp = new Compiler();
                 var result = comp.FullCompile(ast);

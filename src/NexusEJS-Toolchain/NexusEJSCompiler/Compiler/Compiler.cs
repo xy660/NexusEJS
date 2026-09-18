@@ -125,9 +125,6 @@ namespace ScriptRuntime.Core
                        //GET_FIELD返回的VariableValue，obj.sub中，sub的值是 get_field.bridge->ref
                        //STORE指令需要判断一下是不是桥接类型
             GET_FIELD_ASS, //赋值所用的FIELD，不走原型链查找，自动创建新值
-
-            //常量池使用
-            CONST_STR, //字符串常量,Unicode表示;指令结构：（1byte头+4byte长度+内容）
         }
 
         //作用域帧控制流类型
@@ -252,7 +249,6 @@ namespace ScriptRuntime.Core
     {OpCode.GET_FIELD,-1 }, //弹出一个字符串+一个对象，然后压入新的prop
     {OpCode.GET_FIELD_ASS,-1 }, //弹出一个字符串+一个对象，然后压入新的prop
 
-    {OpCode.CONST_STR,0 },
 
 };
 
@@ -300,7 +296,6 @@ namespace ScriptRuntime.Core
     { OpCode.PUSH_PTR, 9 },      // 1字节头 + 8字节long
     { OpCode.PUSH_BOOL, 2 },     // 1字节头 + 1字节bool
     { OpCode.PUSH_STR, 3 },       //1字节头 + 2字节ushort索引
-    { OpCode.CONST_STR, -1 },     // 1字节头 + 4字节长度 + 变长内容，标记为-1表示变长
     { OpCode.JMP, 5 },           // 1字节头 + 4字节地址
     { OpCode.JMP_IF_FALSE, 5 },  // 1字节头 + 4字节地址
     { OpCode.JMP_IF_TRUE, 5 },  // 1字节头 + 4字节地址
@@ -326,13 +321,9 @@ namespace ScriptRuntime.Core
             while (index < bytecode.Length)
             {
                 OpCode op = (OpCode)bytecode[index];
+                
                 int skipSize = instructionSize[op];
-                if (op == OpCode.CONST_STR)
-                {
-                    int len = BitConverter.ToInt32(bytecode, index + 1);
-                    skipSize = 1 + sizeof(int) + len * sizeof(char);
-                }
-                else if (op == OpCode.CALLFUNC)
+                if (op == OpCode.CALLFUNC)
                 {
                     effect -= bytecode[index + 1];
                 }
@@ -340,6 +331,17 @@ namespace ScriptRuntime.Core
                 {
                     effect += stackNetEffect[op];
                 }
+
+                //修一下线性统计的毛病
+                //遇到分支会炸，因为两个分支会累加
+                //因为分支只有三元和if之类的会产生
+                //所以只算其中一条条件成立的分支（也就是遇到jmp就跳，默认两条分支的栈影响相等）
+                if (op == OpCode.JMP || op == OpCode.JMP_IF_TRUE)
+                {
+                    int jmpRelative = BitConverter.ToInt32(bytecode, index + 1);
+                    if(jmpRelative > 0) index += jmpRelative; //不算往回跳的，因为这些都是循环
+                }
+
                 index += skipSize;
             }
             return effect;
@@ -355,14 +357,7 @@ namespace ScriptRuntime.Core
             {
                 OpCode op = (OpCode)bytecode[index];
                 int skipSize = instructionSize[op];
-                if (op == OpCode.CONST_STR)
-                {
-                    //int len = BitConverter.ToInt32(bytecode, index + 1);
-                    //skipSize = 1 + sizeof(int) + len * sizeof(char);
-                    //string str = Encoding.Unicode.GetString(bytecode, index + 5, len);
-                    //defines.Add(str);
-                }
-                else if (op == OpCode.DEL_DEF) //已经被删过的
+                if (op == OpCode.DEL_DEF) //已经被删过的
                 {
                     ushort constIndex = BitConverter.ToUInt16(bytecode, prevIndex + 1);
                     string defString = ConstString[constIndex];
@@ -508,25 +503,6 @@ namespace ScriptRuntime.Core
         {
             switch (opcode)
             {
-                /*
-                case OpCode.ADD:
-                case OpCode.SUB:
-                case OpCode.MUL:
-                case OpCode.DIV:
-                case OpCode.EQUAL:
-                case OpCode.NOT_EQUAL:
-                case OpCode.GREATER_EQUAL:
-                case OpCode.LOWER_EQUAL:
-                case OpCode.GREATER:
-                case OpCode.LOWER:
-                case OpCode.AND:
-                case OpCode.OR:
-                case OpCode.DEF_LOCAL:
-                case OpCode.DEF_GLOBAL:
-                case OpCode.STORE:
-                    ms.WriteByte((byte)(int)opcode);
-                    break;
-                */
                 case OpCode.JMP:
                 case OpCode.JMP_IF_TRUE:
                 case OpCode.JMP_IF_FALSE:
@@ -540,11 +516,6 @@ namespace ScriptRuntime.Core
                 case OpCode.PUSH_NUM:
                     ms.WriteByte((byte)(int)opcode);
                     ms.Write(BitConverter.GetBytes((double)param));
-                    break;
-                case OpCode.CONST_STR:
-                    ms.WriteByte((byte)(int)opcode);
-                    ms.Write(BitConverter.GetBytes(((string)param).Length));
-                    ms.Write(Encoding.Unicode.GetBytes((string)param));
                     break;
                 case OpCode.LOAD_LOCAL:
                     {
@@ -1173,6 +1144,49 @@ namespace ScriptRuntime.Core
 
                 requireForEachChildren = false;
 
+            }
+            else if(ast.NodeType == ASTNode.ASTNodeType.TypeOfStatement)
+            {
+                //__typeof__(varb)
+                ASTNode transNode = new ASTNode(ASTNode.ASTNodeType.CallFunction, "", ast.line);
+                transNode.Childrens.Add(new ASTNode(ASTNode.ASTNodeType.Identifier, "__typeof__", ast.line));
+                transNode.Childrens.Add(ast.Childrens[0]);
+
+                Compile(transNode);
+
+                requireForEachChildren = false;
+            }
+            if (ast.NodeType == ASTNode.ASTNodeType.TernaryStatement)
+            {
+                //[condition][JMP_IF_FALSE(trueBlock.size + JMP.size)][trueBlock][JMP(falseBlock.size)][falseBlock]
+                ASTNode condition = ast.Childrens[0];
+                ASTNode trueBlock = ast.Childrens[1];
+                ASTNode falseBlock = ast.Childrens[2];
+
+                Compile(condition); //编译条件
+
+                var trueBlockOffset = baseOffset + ms.Position + instructionSize[OpCode.JMP_IF_FALSE];
+                var (compTrue, asmTrue) = new Compiler(new CompilationContext(
+                    ConstString, LocalVariableDefines, OffsetLineMapper, (uint)trueBlockOffset)).Compile(trueBlock);
+
+                var falseBlockOffset = (uint)(trueBlockOffset + compTrue.Length + instructionSize[OpCode.JMP]);
+                var (compFalse, asmFalse) = new Compiler(new CompilationContext(
+                    ConstString, LocalVariableDefines, OffsetLineMapper, falseBlockOffset)).Compile(falseBlock);
+
+                // 条件为假时跳过 true 分支以及 true 分支末尾那条 JMP
+                int jmpCodeSize = compTrue.Length + instructionSize[OpCode.JMP];
+                Emit(OpCode.JMP_IF_FALSE, jmpCodeSize);
+
+                ms.Write(compTrue);
+                sb.AppendLine(asmTrue);
+
+                // true 分支执行完，跳过 false 分支
+                Emit(OpCode.JMP, compFalse.Length);
+
+                ms.Write(compFalse);
+                sb.AppendLine(asmFalse);
+
+                requireForEachChildren = false;
             }
             else if (ast.NodeType == ASTNode.ASTNodeType.BlockCode) //花括号作用域块
             {

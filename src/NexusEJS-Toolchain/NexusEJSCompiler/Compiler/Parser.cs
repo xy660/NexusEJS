@@ -89,8 +89,6 @@ namespace ScriptRuntime.Core
             // 空值合并
             {"??", 4},
             
-            // 三元条件
-            {"?", 3},
             
             // 赋值和复合赋值
             {"=", 2},
@@ -122,6 +120,7 @@ namespace ScriptRuntime.Core
             { new List<string> {"&&"}},          // 逻辑与
             {  new List<string> {"||"}},          // 逻辑或
             { new List<string> {"??"}},          // 空值合并
+            { new List<string>() },              // 占位处理三元运算符
             { new List<string> {"=", "+=", "-=", "*=", "/=", "%=", "&=", "|=", "^=", "<<=", ">>="}}, // 赋值类
         };
 
@@ -225,7 +224,7 @@ namespace ScriptRuntime.Core
             {
                 return new ASTNode(ASTNode.ASTNodeType.Number, val.raw, val.line);
             }
-            else if (val.raw[0] == '"')
+            else if (val.raw[0] == '"' || val.raw[0] == '\'')
             {
                 return new ASTNode(ASTNode.ASTNodeType.StringValue, ProcessEscapeToChar(val.raw), val.line);
             }
@@ -259,6 +258,14 @@ namespace ScriptRuntime.Core
                 var func = ProcessNewExpression();
                 var ast = new ASTNode(ASTNode.ASTNodeType.NewStatement, string.Empty, val.line);
                 ast.Childrens.Add(func);
+                return ast;
+            }
+            else if (val.raw == "typeof")
+            {
+                // typeof 操作符，解析后面的表达式
+                var operand = ProcessOperation(0);
+                var ast = new ASTNode(ASTNode.ASTNodeType.TypeOfStatement, string.Empty, val.line);
+                ast.Childrens.Add(operand);
                 return ast;
             }
             else if(val.raw == "var")
@@ -455,6 +462,37 @@ namespace ScriptRuntime.Core
             return ProcessMemberAccess();
         }
 
+        static ASTNode ProcessTernaryStatement(int higherPower)
+        {
+            var condition = ProcessOperation(higherPower);
+
+            if (PeekToken().raw == "?")
+            {
+                var q = PollToken(); //消费问号
+
+                // JS 中 ? 和 : 的分支是 AssignmentExpression
+                // 所以用赋值层解析，允许嵌套三元、赋值
+                var trueExpr = ProcessOperation(PowerToOperators.Count - 1);
+
+                if (PeekToken().raw != ":")
+                {
+                    throw new SyntaxException("三元运算符缺少 :", PeekToken());
+                }
+
+                PollToken(); //冒号
+
+                var falseExpr = ProcessOperation(PowerToOperators.Count - 1);
+
+                var ast = new ASTNode(ASTNode.ASTNodeType.TernaryStatement, string.Empty, q.line);
+                ast.Childrens.Add(condition);
+                ast.Childrens.Add(trueExpr);
+                ast.Childrens.Add(falseExpr);
+                return ast;
+            }
+
+            return condition;
+        }
+
         //数学和逻辑操作符处理，按照顶上依次下降
         static ASTNode ProcessOperation(int power)
         {
@@ -484,6 +522,11 @@ namespace ScriptRuntime.Core
 
                     return expr;
                 }
+            }
+
+            if (power == PowerToOperators.Count - 2)
+            {
+                return ProcessTernaryStatement(power - 1);
             }
 
             ASTNode left = ProcessOperation(power - 1);
@@ -806,7 +849,7 @@ namespace ScriptRuntime.Core
         public enum ASTNodeType
         {
             EOF,
-            VariableDefination,
+            VariableDefination, //修改为varDef(op1,op2...)适配let a = 1,b = 2,...
             GlobalVariableDefination,
             Assignment,
             CallFunction,
@@ -836,6 +879,8 @@ namespace ScriptRuntime.Core
             ThrowStatement,
             LockStatement,
             NewStatement,
+            TypeOfStatement,
+            TernaryStatement,
         }
 
         public ASTNodeType NodeType;
