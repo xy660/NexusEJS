@@ -5,7 +5,7 @@
 
 # NexusEJS
 
-### 低内存，低资源的嵌入式JavaScript引擎
+### 低内存，低资源占用的嵌入式JavaScript引擎
 
 ## 设计目标
 
