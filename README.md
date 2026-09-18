@@ -46,8 +46,8 @@ NexusEJS在ECMA标准以外设计了：
 
 1. 下载并编译NexusEJS-Toolchain 
 2. 根据你的MCU选择对应的驱动例如`ESP32Driver.h` 将需要的功能对应的宏的值改为`1`
-3. 编写你的js代码
-4. 运行`nejsc your_app.js` 得到`your_app.nejs`
+3. 在文件夹内编写你的js代码
+4. 运行`nejsc your_dir_path` 后在`your_dir_path/nejs_out`内可以找到编译后的`.nejs`文件
 5. 将其放入SPIFFS的data文件中并命名为`entry.nejs` 然后上传FS Image和Firmware
 
 **你可以在`/demo`文件夹找到示例，在`/doc`文件夹找到开发文档及其api文档**
